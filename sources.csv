@@ -1,3 +1,3 @@
-display_name, source_date, source_url, source_type, county, state
-1870 Census, 1870, "https://docs.google.com/spreadsheets/d/1BvrDE7-hJ-qUnTlZXw4fX1AcphGtdYjr9opJy2d-5Hg/export?format=csv", Census1870, Albemarle, VA
-1880 Census, 1880, "https://docs.google.com/spreadsheets/d/1K9DA3aoXkU_Yicts8Umtr92N9Hug3cdeTHcUN1gDf4E/export?format=csv", Census1880, Albemarle, VA
+display_name,year,url,source_type,format,county,state
+ALB_CN_1870, 1870, "https://docs.google.com/spreadsheets/d/1BvrDE7-hJ-qUnTlZXw4fX1AcphGtdYjr9opJy2d-5Hg/export?format=csv", "1870Census.md", ALB, VA
+ALB_CN_1880, 1880, "https://docs.google.com/spreadsheets/d/1K9DA3aoXkU_Yicts8Umtr92N9Hug3cdeTHcUN1gDf4E/export?format=csv", "1880Census.md", ALB, VA

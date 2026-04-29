@@ -49,9 +49,6 @@
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
-	- The source field is set to "ALB_CN_1880".
-	- The source_type field is set to "census".
-	- The source_year field is set to 1880.
 	- The original_data field is set to the file's entire row as a JSONB object
 	- The confidence field is set to 0.9.
 	- If a new household is detected, i.e. the dwelling number is different from the previous row {

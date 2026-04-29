@@ -1,5 +1,8 @@
 **DATABASE SCHEMA**
 
+// ssh -i "C:\Bill\CC\js\StageToolsKey.pem" -L 3000:127.0.0.1:3000 -L 5432:127.0.0.1:5432 bitnami@52.70.208.176 -N
+// NOTIFY pgrst, 'reload schema';
+
 The following SQL commands define the schema for the various tables needed:
 
 	CREATE TABLE locations (
@@ -28,8 +31,7 @@ The following SQL commands define the schema for the various tables needed:
 		source VARCHAR(100),
 		source_type VARCHAR(100), 
 		source_year SMALLINT, 
-		source_line SMALLINT, 
-		original_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+		original_data JSONB DEFAULT '{}'::jsonb,
 		confidence REAL,
 		
 		full_name VARCHAR(255),
@@ -42,9 +44,8 @@ The following SQL commands define the schema for the various tables needed:
 		race VARCHAR(1) CHECK (race IN ('B','M','W','C','I','Y','')),
 		gender VARCHAR(1) CHECK (gender IN ('M','F')),
 		occupation VARCHAR(100),
-		aliases VARCHAR(255),
 		legal_status VARCHAR(100),
-		is_enslaver BOOLEAN NOT NULL DEFAULT FALSE,
+		is_enslaver BOOLEAN DEFAULT FALSE,
 
 		norm_first_name VARCHAR(100),
 		nysiis_last_name VARCHAR(100), 
@@ -53,9 +54,10 @@ The following SQL commands define the schema for the various tables needed:
 
 		enslaver_id UUID REFERENCES mentions(mention_id),
 		location_id UUID REFERENCES locations(location_id),
+		head BOOLEAN DEFAULT FALSE,
 		household_id VARCHAR(50),	
 		family_id VARCHAR(50),
-		created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
 
 	ALTER TABLE locations 
@@ -74,8 +76,8 @@ The following SQL commands define the schema for the various tables needed:
 		end_year SMALLINT,
 		who VARCHAR(100),
 		confidence REAL CHECK (confidence BETWEEN 0 AND 1),
-		source_id UUID,  -- traceability back to originating mention or document
-		created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+		source_id UUID,
+		created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 		CHECK (object_id IS NOT NULL OR object_string IS NOT NULL)
 		);
 
@@ -93,15 +95,15 @@ The following SQL commands define the schema for the various tables needed:
 		birth_place VARCHAR(255),
 		mention_count INTEGER DEFAULT 0,
 		algorithm VARCHAR(20) CHECK (algorithm IN ('emergent','FamilySearch','human')),
-		has_pre_wall_link BOOLEAN NOT NULL DEFAULT FALSE,
+		has_pre_wall_link BOOLEAN DEFAULT FALSE,
 		wall_pierce_confidence REAL,
 		confidence REAL CHECK (confidence BETWEEN 0 AND 1),
-		created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
 
 	CREATE TABLE hypotheses (
 		hypothesis_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		confidence REAL, 
-		created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
 

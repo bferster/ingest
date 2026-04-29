@@ -58,9 +58,6 @@
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
-	- The source field is set to "ALB_CN_1870"
-	- The source_type field is set to "census"
-	- The source_year field is set to 1870
 	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.9
 	- The legal_status field is set to "F"
