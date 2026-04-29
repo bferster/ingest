@@ -39,7 +39,7 @@ The following SQL commands define the schema for the various tables needed:
 		maiden_name VARCHAR(100),
 		birth_year SMALLINT,
 		death_year SMALLINT,
-		race VARCHAR(1) CHECK (race IN ('B','M','W','C','I','Y')),
+		race VARCHAR(1) CHECK (race IN ('B','M','W','C','I','Y','')),
 		gender VARCHAR(1) CHECK (gender IN ('M','F')),
 		occupation VARCHAR(100),
 		aliases VARCHAR(255),
@@ -53,8 +53,8 @@ The following SQL commands define the schema for the various tables needed:
 
 		enslaver_id UUID REFERENCES mentions(mention_id),
 		location_id UUID REFERENCES locations(location_id),
-		household_id UUID,
-		family_id UUID,
+		household_id VARCHAR(50),	
+		family_id VARCHAR(50),
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
 

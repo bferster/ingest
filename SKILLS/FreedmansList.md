@@ -47,4 +47,4 @@
 	- The legal_status field is set to "F"
 	- Apply the normalization as described in @Normalize.md
 	- Get the location_id as described in @GetLocation.md using the location field
-	- Share surname - Lynn will get rules for this? 
+	- Share surname - TODO: Get rules from Lynn before implementation

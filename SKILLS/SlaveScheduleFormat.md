@@ -81,14 +81,14 @@
 		- Add  the that mention_id to the enslaved person's mention row.
 		- Create assertion row data {
 			subject: enslaved person's mention_id.
-			predicate: isEnslavedBy.
+			predicate: wasEnslavedBy.
 			object: enslaver's mention_id.
 			who: "slaveSchedule", 
 			start_year: 1850 or 1860.
-			end_year: "".	
+			end_year: 1850 or 1860.	
 			confidence: 0.8.
 			}
 	- Add assertion to assertions table.
-	- Lynn will add relationship assertions (confidence is .5).
+	- TODO: Lynn will add relationship assertions (confidence is .5).
 	}
 

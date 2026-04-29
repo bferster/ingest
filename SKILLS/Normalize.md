@@ -37,7 +37,7 @@
 	
 **NICKNAME ALGORITHM**
 
-		Convert the value to a normalized value using the NicknamesMap object found below.
+		Convert the value to a normalized value using the NICKNAMES object found below.
 		Remove all non-alphabetic characters and convert the name to uppercase.
 		Convert all abbreviations to full names, e.g. "Wm" to "William", "Robt" to "Robert", "Jas" to "James", etc.
 		Convert all nicknames to full names, e.g. "Bill" to "William", "Bob" to "Robert", "Jim" to "James", etc.
@@ -206,9 +206,9 @@
 		}
 		];
 
-**NICKNAMES MAP**
-
-		const nicknamesMap = {
+**NICKNAMES**
+`
+		const nickname = {
 			// William
 			"WM": "WILLIAM", "BILL": "WILLIAM", "BILLY": "WILLIAM",
 			"WILL": "WILLIAM", "WILLY": "WILLIAM", "WILLIE": "WILLIAM",
