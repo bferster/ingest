@@ -24,7 +24,7 @@
 **Example rows**
 
 	| line | full_name           | first_name | middle_name | last_name | record_year | location |
-	|------|-------------------- |------------|-------------|-----------|-------------|-------|
+	|------|-------------------- |------------|-------------|-----------|-------------|--------|
 	| 1    | Polly Williams      | Polly      |             | Williams  | 1866        | Franklin Surry NC |
 	| 2    | Armstead Williamson | Armstead   |             | Williamson| 1866        | Franklin |
 	| 3    | Segeour Williams    | Segeour    |             | Williams  | 1867        | Franklin |
@@ -47,3 +47,4 @@
 	- The legal_status field is set to "F"
 	- Apply the normalization as described in @Normalize.md
 	- Get the location_id as described in @GetLocation.md using the location field
+	- Share surname - Lynn will get rules for this? 

@@ -64,7 +64,7 @@
 	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.9
 	- The legal_status field is set to "F"
-	- If the head  field is "Y" then set the head  field to TRUE	
+	- If the head field is "Y" then set the head field to TRUE	
 	- Apply the normalization as described in @Normalize.md
 	- Get the location_id as described in @GetLocation.md using the district field
 	- Add mention to mentions table
@@ -75,7 +75,9 @@
 	- For each mention with the same household_id {
 		- Identify the head of household as the person with the head field value of TRUE.
 		- find the other mentions in the household with the same household_id and find predicate {
-			- From Lynn			
+			- if self is male and next row is female and age is less than 15 years younger or 5 years older, then self then predicate is isSpouseOf.
+			- if self is female and next row is younger than 14, then self then predicate is isMotherOf.	
+			-if self is followed by one or more other people within a 20 year age range, predicate is isSiblingOf.	
 			}
 		- Create assertion row data {
 			subject: head_mention_id

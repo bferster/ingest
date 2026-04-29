@@ -43,12 +43,12 @@
 
 **Translation instructions**
 
-	- Most of the fields in file match the same as the mentions' fields	
-	- The source field is set to "ALB_VR_1715"
-	- The source_type field is set to "vitalRecords"
-	- The source_year field is set to the year in the record_year field
-	- The original_data field is set to the entire row as a JSONB object
-	- The confidence field is set to 0.9
+	- Most of the fields in file match the same as the mentions' fields.
+	- The source field is set to "ALB_VR_1715".
+	- The source_type field is set to "vitalRecords".
+	- The source_year field is set to the year in the record_year field.
+	- The original_data field is set to the entire row as a JSONB object.
+	- The confidence field is set to 0.85.
 	- Apply the normalization as described in @Normalize.md
 	- Add mention to mentions table
 
@@ -56,38 +56,39 @@
 
 	- This occurs after all row mentions have been added to the mentions table
 	- Add parent mentions for each record {
-		- if mother mentioned add an mention for the mother
-		- if father mentioned add an mention for the father
-		- The source field is set to "ALB_VR_1715"
-		- The source_type field is set to "vitalRecords"
-		- The source_year field is set to the year in the record_year field
+		- if mother mentioned add an mention for the mother.
+		- if father mentioned add an mention for the father.
+		- The source field is set to "ALB_VR_1715".
+		- The source_type field is set to "vitalRecords".
+		- The gender field is set to "F" for the mother and "M" for the father.
+		- The source_year field is set to the year in the record_year field.
 		- The original_data field is set to the entire row as a JSONB object
 		- The full_name field is set to the mother or father field
 		- The first_name, middle_name, and last_name fields are set to parts of the mother or father field {
 			- Remove all punctuation from full_name
-			- If the full_name has only one word, then add that word to last_name and first_name
-			- If the full_name has two words, then first_name is the first word and last_name is the last word
-			- If the full_name has more than two words, then first_name is the first word, middle_name is the second word, and last_name is the last word
-			- If the full_name has a jr or sr or or ii or iii or iv 2nd or 3rd or 4th or 5th, use the word before it as the last_name	
+			- If the full_name has only one word, then add that word to last_name and first_name.
+			- If the full_name has two words, then first_name is the first word and last_name is the last word.
+			- If the full_name has more than two words, then first_name is the first word, middle_name is the second word, and last_name is the last word.
+			- If the full_name has a jr or sr or or ii or iii or iv 2nd or 3rd or 4th or 5th, use the word before it as the last_name.	
 			}
-		- Apply the normalization as described in @Normalize.md
-		- The confidence field is set to 0.9
+		- Apply the normalization as described in @Normalize.md.
+		- The confidence field is set to 0.85.
 		- Add mention to mentions table
 		}
 
 **Add assertions**
 
-	- This occurs after all parent mentions have been added to the mentions table
-	- if mother mentioned add an assertion for the mother with predicate IsMotherOf as below
-	- if father mentioned add an assertion for the father with predicate IsFatherOf as below
+	- This occurs after all parent mentions have been added to the mentions table.
+	- if mother mentioned add an assertion for the mother with predicate IsMotherOf as below:
+	- if father mentioned add an assertion for the father with predicate IsFatherOf as below:
 		- Add assertion {
-			subject: parent's mention_id
-			predicate: as defined above
-			object: child's mention_id
-			who: "vitalRecords" 
-			start_year: record_year
-			end_year: ""	
-			confidence: 0.9
+			subject: parent's mention_id.
+			predicate: as defined above.
+			object: child's mention_id.
+			who: "vitalRecords". 
+			start_year: record_year.
+			end_year: "".	
+			confidence: 0.85.
 			}
-		- Add assertion to assertions table
+		- Add assertion to assertions table.
 

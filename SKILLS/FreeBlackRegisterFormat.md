@@ -36,7 +36,7 @@
 	| 5    | Betsy Ailstock     | Betsy      |             | Ailstock  | F      | 46  | 1812       | 1858 | 5' 3 1/4" | dark         | no scars or marks perceivable |
 	| 6    | Elizabeth Ailstock | Elizabeth  |             | Ailstock  | F      | 22  | 1828       | 1850 | 5' 2"     | dark         | a small scar upon the forefinger of the left hand |
 	| 7    | Elizabeth Ailstock | Elizabeth  |             | Ailstock  | F      | 28  | 1829       | 1857 | 5' 2"     | dark         | small scar upon the forefinger of the left hand and one over the left eye |
-	| 8    | Elizabeth Ailstock | Elizabeth  |             | Ailstock  | F      | 23  | 1829        | 1852 | 5' 6"     | dark         | scar on the right side of her neck |
+	| 8    | Elizabeth Ailstock | Elizabeth  |             | Ailstock  | F      | 23  | 1829       | 1852 | 5' 6"     | dark         | scar on the right side of her neck |
 	| 9    | Frances Ailstock   | Frances    |             | Ailstock  | F      | 25  | 1825       | 1850 | 5' 2"     | dark         | a scar upon the upper lip and one upon the back of the right hand |
 	| 10   | Frances Ailstock   | Frances    |             | Ailstock  | F      | 32  | 1826       | 1858 | 5' 2"     | dark         | scar upon upper lip and one upon back of right hand |
 	| 11   | George W Ailstock  | George     | W           | Ailstock  | M      | 23  | 1834       | 1857 | 5' 8"     | light        | scar on the forehead, four on the left hand and one on the forefinger of the right hand |
@@ -46,13 +46,15 @@
 	- Most of the fields in file match the same as the mentions' fields	
 	- The source field is set to "ALB_FBR" 
 	- The source_type field is set to "FreeBlackRegister"
-	- The source_year field is set to the date column field value
+	- The source_year field is set to the date column field value.
 	- The original_data field is set to the entire row as a JSONB object
-	- The confidence field is set to 0.8
-	- The legal_status field is set to "F"
+	- The confidence field is set to 0.85.
+	- The legal_status field is set to "F".
 	- If color contains "light" or "mulatto" or "brown" or "olive" or "tawny" {
-		- set race to "M"
-		- else set race to "B"
-		}	
-	- Apply the normalization as described in @Normalize.md
-	- Add mention to mentions table
+		- set race to "M".
+		- else if color contains "yellow" or "indian", set race to "I".
+		- else set race to "B".
+		}
+	- Height in the JSONB height field should be translated to inches.
+	- Apply the normalization as described in @Normalize.md.
+	- Add mention to mentions table.

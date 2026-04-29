@@ -42,6 +42,34 @@
 		Convert all abbreviations to full names, e.g. "Wm" to "William", "Robt" to "Robert", "Jas" to "James", etc.
 		Convert all nicknames to full names, e.g. "Bill" to "William", "Bob" to "Robert", "Jim" to "James", etc.
 
+**JARO-WINKLER ALGORITHM**
+
+		Write a JavaScript function that implements the Jaro-Winkler string similarity algorithm {
+			The function should take two strings as arguments and return a number between 0.0 and 1.0 (where 1.0 is an exact match and 0.0 means no similarity).
+			Do not use any external dependencies or libraries.
+			Include handling for edge cases: empty strings, identical strings, and case-insensitivity.
+			Provide clear comments explaining the two main phases: calculating the base Jaro similarity, and then applying the Winkler prefix scale modification.
+		}`
+
+**FELLEGI-SUNTER ALGORITHM:**
+
+	Create a fun`ction called buildNameFrequencies(dataset) {
+		- It takes an array of person objects, such as a dataset of census records. 
+		- It creates and returns two Map objects (firstNameFreq and lastNameFreq). 
+		- It iterates through the dataset, normalizes the first_name and last_name (lowercase, trimmed), and counts their occurrences.
+		}
+
+	Create a function called getNameWeightModifier(name, freqMap) {
+		- It takes a normalized name and its corresponding frequency map. It returns an integer based on these rules {
+			- Name missing/not in map: 0
+			- Count <= 5 (Very Rare): +15
+			- Count <= 20 (Uncommon): +5
+			- Count between 21 and 100 (Average): 0
+			- Count > 100 (Common): -5
+			- Count > 500 (Extremely Common): -15
+		}
+	}
+
 **NYSIIS ALGORITHM**
 
 		Remove all non-alphabetic characters and convert the name to uppercase.
