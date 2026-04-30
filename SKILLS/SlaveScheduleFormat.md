@@ -40,7 +40,6 @@
 
 	- Most of the fields in file match the same as the mentions' fields	
 	- The source field is set to "ALB_SS-1850" or "ALB_SS-1860".
-	- The source_type field is set to "slaveSchedule".
 	- The source_year field is set to 1850 or 1860.
 	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.8.
@@ -54,7 +53,6 @@
 	- This occurs after all mentions for the enslaved people have been added to the mentions table
 	- Add a mention for each unique enslaver {
 		- The source field is set to "ALB_SS-1850" or "ALB_SS-1860"
-		- The source_type field is set to "slaveSchedule".
 		- The source_year field is set to 1850 or 1860
 		- The original_data field is set to the entire row as a JSONB object
 		- Set the legal_status field is set to ""

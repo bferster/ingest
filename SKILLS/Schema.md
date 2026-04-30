@@ -29,8 +29,8 @@ The following SQL commands define the schema for the various tables needed:
 	CREATE TABLE mentions (
 		mention_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		source VARCHAR(100),
-		source_type VARCHAR(100), 
 		source_year SMALLINT, 
+		county VARCHAR(50),
 		original_data JSONB DEFAULT '{}'::jsonb,
 		confidence REAL,
 		
@@ -42,14 +42,14 @@ The following SQL commands define the schema for the various tables needed:
 		birth_year SMALLINT,
 		death_year SMALLINT,
 		race VARCHAR(1) CHECK (race IN ('B','M','W','C','I','Y','')),
-		gender VARCHAR(1) CHECK (gender IN ('M','F')),
+		gender VARCHAR(1) CHECK (gender IN ('M','F','')),
 		occupation VARCHAR(100),
 		legal_status VARCHAR(100),
 		is_enslaver BOOLEAN DEFAULT FALSE,
 
 		norm_first_name VARCHAR(100),
 		nysiis_last_name VARCHAR(100), 
-		norm_race VARCHAR(1) CHECK (norm_race IN ('B','W')),
+		norm_race VARCHAR(1) CHECK (norm_race IN ('B','W','')),
 		norm_occupation VARCHAR(100),
 
 		enslaver_id UUID REFERENCES mentions(mention_id),
@@ -70,13 +70,13 @@ The following SQL commands define the schema for the various tables needed:
 		assertion_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		subject_id UUID NOT NULL REFERENCES mentions(mention_id),
 		predicate VARCHAR(100) NOT NULL,
+		county VARCHAR(50),
 		object_id UUID REFERENCES mentions(mention_id),   -- when object is a mention
 		object_string VARCHAR(255),                       -- when object is a string
 		start_year SMALLINT,
 		end_year SMALLINT,
 		who VARCHAR(100),
 		confidence REAL CHECK (confidence BETWEEN 0 AND 1),
-		source_id UUID,
 		created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 		CHECK (object_id IS NOT NULL OR object_string IS NOT NULL)
 		);
@@ -90,11 +90,11 @@ The following SQL commands define the schema for the various tables needed:
 		birth_year_low SMALLINT,
 		birth_year_high SMALLINT,
 		death_year_est SMALLINT,
-		gender VARCHAR(1) CHECK (gender IN ('M','F')),
-		race VARCHAR(1) CHECK (race IN ('B','M','W','C','I','Y')),
+		gender VARCHAR(1) CHECK (gender IN ('M','F','')),
+		race VARCHAR(1) CHECK (race IN ('B','M','W','C','I','Y','')),
 		birth_place VARCHAR(255),
 		mention_count INTEGER DEFAULT 0,
-		algorithm VARCHAR(20) CHECK (algorithm IN ('emergent','FamilySearch','human')),
+		algorithm VARCHAR(20) CHECK (algorithm IN ('emergent','FamilySearch','human','')),
 		has_pre_wall_link BOOLEAN DEFAULT FALSE,
 		wall_pierce_confidence REAL,
 		confidence REAL CHECK (confidence BETWEEN 0 AND 1),
@@ -106,4 +106,5 @@ The following SQL commands define the schema for the various tables needed:
 		confidence REAL, 
 		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
+
 

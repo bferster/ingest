@@ -40,7 +40,6 @@
 
 	- Most of the fields in file match the same as the mentions' fields	
 	- The source field is set to "ALB_FL-1865"
-	- The source_type field is set to "FreedmansList"
 	- The source_year field is set to the value in the record_year field
 	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.8

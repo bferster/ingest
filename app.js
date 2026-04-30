@@ -11,8 +11,8 @@ let currentConfidence = 1.0;
 let stopIngestion = false;
 
 const sourceSelect = document.getElementById('source-select');
-const loadBtn = document.getElementById('load-btn');
 const processBtn = document.getElementById('process-btn');
+const limitCheckbox = document.getElementById('limit-checkbox');
 const stopBtn = document.getElementById('stop-btn');
 const previewSection = document.getElementById('preview-section');
 const progressSection = document.getElementById('progress-section');
@@ -76,14 +76,17 @@ function populateSourceDropdown() {
 		}
 	});
 	sourceSelect.addEventListener('change', () => {
-		loadBtn.disabled = sourceSelect.value === "";
-		previewSection.classList.add('hidden');
-		progressSection.classList.add('hidden');
+		if (sourceSelect.value !== "") {
+			loadSourcePreview();
+		} else {
+			previewSection.classList.add('hidden');
+			progressSection.classList.add('hidden');
+		}
 	});
 }
 
 // 2. Load Preview
-loadBtn.addEventListener('click', () => {
+async function loadSourcePreview() {
 	const selectedIndex = sourceSelect.value;
 	if (selectedIndex === "") return;
 
@@ -91,7 +94,7 @@ loadBtn.addEventListener('click', () => {
 	const url = selectedSource.url;
 
 	log(`Loading data from URL: ${url}`);
-	loadBtn.disabled = true;
+	previewSection.classList.add('hidden');
 
 	Papa.parse(url, {
 		download: true,
@@ -102,10 +105,9 @@ loadBtn.addEventListener('click', () => {
 			currentCsvData = results.data;
 			log(`Successfully parsed ${currentCsvData.length} rows.`);
 			showPreview();
-			loadBtn.disabled = false;
 
 			// Try to fetch confidence from the format .md file
-			let formatFileName = selectedSource.source_type;
+			let formatFileName = selectedSource.format;
 			// The CSV might say '1870Census.md' instead of '1870CensusFormat.md'
 			if (formatFileName && !formatFileName.includes('Format')) {
 				formatFileName = formatFileName.replace('.md', 'Format.md');
@@ -117,7 +119,7 @@ loadBtn.addEventListener('click', () => {
 
 			try {
 				// Add cache buster to bypass browser caching of .md files
-				const mdRes = await fetch(`/SKILLS/${formatFileName}?${new Date().getTime()}`);
+				const mdRes = await fetch(`SKILLS/${formatFileName}?${new Date().getTime()}`);
 				if (mdRes.ok) {
 					const mdText = await mdRes.text();
 					const match = mdText.match(/confidence field is set to\s*([0-9.]+)/i);
@@ -139,10 +141,9 @@ loadBtn.addEventListener('click', () => {
 		},
 		error: function (err) {
 			log(`Error parsing CSV: ${err}`, true);
-			loadBtn.disabled = false;
 		}
 	});
-});
+}
 
 function showPreview() {
 	if (currentCsvData.length === 0) {
@@ -186,17 +187,18 @@ processBtn.addEventListener('click', async () => {
 	progressSection.classList.remove('hidden');
 	stopIngestion = false;
 
-	const totalRows = currentCsvData.length;
+	const useLimit = limitCheckbox.checked;
+	const totalRows = useLimit ? Math.min(50, currentCsvData.length) : currentCsvData.length;
 	let processedRows = 0;
 
-	log(`Starting ingestion of ${totalRows} rows...`);
+	log(`Starting ingestion of ${totalRows} rows${useLimit ? ' (Limited to 50)' : ''}...`);
 
 	for (let i = 0; i < totalRows; i++) {
 		if (stopIngestion) {
 			log(`Ingestion stopped by user at row ${i}.`);
 			break;
 		}
-		
+
 		const row = currentCsvData[i];
 		try {
 			await processRow(row);
@@ -210,12 +212,13 @@ processBtn.addEventListener('click', async () => {
 
 	log(`Finished row ingestion.`);
 
-	// Post-hoc Mentions
+	// Post-hoc Mentions and Assertions
 	if (!stopIngestion) {
 		try {
 			await processPostHocMentions();
+			await processPostHocAssertions();
 		} catch (err) {
-			log(`Failed post-hoc mentions: ${err.message}`, true);
+			log(`Failed post-hoc processing: ${err.message}`, true);
 		}
 	} else {
 		log('Skipping Post-Hoc processing because ingestion was stopped.');
@@ -240,12 +243,9 @@ function updateProgress(processed, total) {
 async function processRow(row) {
 	// 1. Extract full_name and basic normalization
 	const firstName = row.first_name || row.FirstName || row.GivenName || '';
+	const middleName = row.middle_name || row.MiddleName || '';
 	const lastName = row.last_name || row.LastName || row.Surname || '';
-	const fullName = `${firstName} ${lastName}`.trim();
-
-	if (!fullName) {
-		throw new Error("No name found in row.");
-	}
+	const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ').trim();
 
 	// 2. Check for existing row to avoid deduplication
 	// Construct original_data JSONB
@@ -270,30 +270,47 @@ async function processRow(row) {
 	const normOccupation = normalizeOccupation(rawOccupation);
 	const normRace = simpleRaceNorm(row.race || row.Race || '');
 
+	let computedBirthYear = null;
+	if (row.birth_year || row.BirthYear || row.birthYear) {
+		computedBirthYear = parseInt(row.birth_year || row.BirthYear || row.birthYear);
+	} else if (row.age || row.Age) {
+		const age = parseInt(row.age || row.Age);
+		if (!isNaN(age)) {
+			computedBirthYear = selectedSource.year - age;
+		}
+	}
+	if (isNaN(computedBirthYear)) computedBirthYear = null;
+
+	const deathYear = (row.death_year || row.DeathYear) ? parseInt(row.death_year || row.DeathYear) : null;
+
 	// 4. Construct Mention Object
 	const mention = {
 		source: selectedSource.display_name,
 		source_year: parseInt(selectedSource.year),
+		county: selectedSource.county || '',
 		original_data: row, // will be converted to JSONB by PostgREST
 		confidence: currentConfidence,
 		full_name: fullName,
 		first_name: firstName,
+		middle_name: middleName,
 		last_name: lastName,
-		birth_year: parseInt(row.birth_year || row.BirthYear || row.Age ? (selectedSource.year - row.Age) : null),
-		death_year: parseInt(row.death_year || null),
-		race: row.race || row.Race || '',
-		gender: row.gender || row.Gender || row.Sex || '',
+		birth_year: computedBirthYear,
+		death_year: isNaN(deathYear) ? null : deathYear,
+		race: (row.race || row.Race) ? String(row.race || row.Race).toUpperCase() : null,
+		gender: (row.gender || row.Gender || row.Sex) ? String(row.gender || row.Gender || row.Sex).toUpperCase() : null,
 		occupation: rawOccupation,
 		norm_first_name: normFirstName,
 		nysiis_last_name: nysiisLastName,
 		norm_race: normRace,
 		norm_occupation: normOccupation,
 		is_enslaver: String(row.is_enslaver || row.IsEnslaver || '').toUpperCase() === 'Y' || String(row.is_enslaver || row.IsEnslaver || '').toLowerCase() === 'TRUE',
-		head: String(row.head || row.Head || '').toUpperCase() === 'Y' || String(row.head || row.Head || '').toLowerCase() === 'TRUE'
+		head: String(row.head || row.Head || '').toUpperCase() === 'Y' || String(row.head || row.Head || '').toLowerCase() === 'TRUE',
+		legal_status: '' // Default
 	};
-	console.log(mention);
 
-	// 5. Add new row to MENTIONS table
+	applyFormatSpecificRules(mention, row);
+
+	console.log(mention);
 	const postRes = await fetch(`${POSTGREST_URL}/mentions`, {
 		method: 'POST',
 		headers: {
@@ -312,6 +329,87 @@ async function processRow(row) {
 
 	// 6. Stub for assertions processing
 	await createAssertions(insertedMention[0] || insertedMention, row);
+}
+
+async function applyFormatSpecificRules(mention, row) {
+	const format = selectedSource.format || '';
+
+	// Census Formats (1870, 1880)
+	if (format.includes('Census')) {
+		mention.legal_status = 'F';
+	}
+
+	// FreeBlackRegister
+	if (format.includes('FreeBlackRegister')) {
+		mention.source = "ALB_FBR";
+		mention.legal_status = 'F';
+		mention.confidence = 0.85;
+
+		// Date column override for source_year
+		const rawDate = row.date || row.Date || '';
+		if (rawDate) {
+			const yr = parseInt(rawDate);
+			if (!isNaN(yr)) mention.source_year = yr;
+		}
+
+		// Race logic based on color
+		const color = (row.color || row.Color || '').toLowerCase();
+		if (color.includes('light') || color.includes('mulatto') || color.includes('brown') || color.includes('olive') || color.includes('tawny')) {
+			mention.race = 'M';
+			mention.norm_race = 'B';
+		} else if (color.includes('yellow') || color.includes('indian')) {
+			mention.race = 'I';
+			mention.norm_race = 'B';
+		} else {
+			mention.race = 'B';
+			mention.norm_race = 'B';
+		}
+
+		// Height translation
+		if (row.height) {
+			const match = row.height.match(/(\d+)\s*'\s*(\d+)\s*"?/);
+			if (match) {
+				const inches = parseInt(match[1]) * 12 + parseInt(match[2]);
+				mention.original_data.height = inches;
+				console.log(`Converted height ${row.height} to ${inches} inches`);
+			} else {
+				console.log(`Failed to parse height format: ${row.height}`);
+			}
+		} else if (row.Height) {
+			const match = row.Height.match(/(\d+)\s*'\s*(\d+)\s*"?/);
+			if (match) {
+				const inches = parseInt(match[1]) * 12 + parseInt(match[2]);
+				mention.original_data.Height = inches;
+				console.log(`Converted height ${row.Height} to ${inches} inches`);
+			} else {
+				console.log(`Failed to parse height format: ${row.Height}`);
+			}
+		}
+	}
+
+	// FindAGrave
+	if (format.includes('FindAGrave')) {
+		mention.source = "ALB_FindAGrave";
+		mention.confidence = 0.8;
+	}
+
+	// FreedmansList
+	if (format.includes('FreedmansList')) {
+		mention.source = "ALB_FL-1865";
+		if (row.record_year) {
+			const yr = parseInt(row.record_year);
+			if (!isNaN(yr)) mention.source_year = yr;
+		}
+	}
+
+	// VitalRecord
+	if (format.includes('VitalRecord')) {
+		mention.source = "ALB_VR_1715";
+		if (row.record_year) {
+			const yr = parseInt(row.record_year);
+			if (!isNaN(yr)) mention.source_year = yr;
+		}
+	}
 }
 
 async function createAssertions(mention, row) {
@@ -371,6 +469,150 @@ async function processPostHocMentions() {
 	}
 }
 
+async function processPostHocAssertions() {
+	log('Starting Post-Hoc Assertions processing...');
+
+	// Fetch all mentions for this source, ordered by mention_id as a proxy for insertion order 
+	// (though we'll sort by 'line' if available)
+	const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(selectedSource.display_name)}`, { headers: API_HEADERS });
+	if (!res.ok) {
+		throw new Error('Failed to fetch mentions for assertions');
+	}
+
+	const mentions = await res.json();
+
+	// Sort by line number from original_data to maintain enumeration order
+	mentions.sort((a, b) => {
+		const lineA = parseInt(a.original_data?.line || 0);
+		const lineB = parseInt(b.original_data?.line || 0);
+		return lineA - lineB;
+	});
+
+	// Group by household_id
+	const households = {};
+	mentions.forEach(m => {
+		if (!m.household_id) return;
+		if (!households[m.household_id]) households[m.household_id] = [];
+		households[m.household_id].push(m);
+	});
+
+	let assertionCount = 0;
+
+	for (const [hhId, members] of Object.entries(households)) {
+		const head = members.find(m => m.head === true);
+		if (!head) continue;
+
+		for (let i = 0; i < members.length; i++) {
+			const self = members[i];
+			const next = members[i + 1];
+
+			// Skip head for relation identification as per instruction 74
+			if (self.mention_id === head.mention_id) continue;
+
+			let predicate = null;
+			let confidence = 0.5;
+			let who = "1870Census";
+
+			const is1880 = selectedSource.year == 1880;
+
+			if (is1880) {
+				who = "1880Census";
+				confidence = 0.9;
+				// 1880 Census Logic (Relation-based)
+				const relation = self.original_data?.relation;
+				if (relation && relation !== "Self") {
+					const relationMap = {
+						"Wife": "isSpouseOf",
+						"Son": "isChildOf",
+						"Daughter": "isChildOf",
+						"Brother": "isSiblingOf",
+						"Sister": "isSiblingOf",
+						"Father": "isFatherOf",
+						"Mother": "isMotherOf",
+						"Grandfather": "isGrandfatherOf",
+						"Grandmother": "isGrandmotherOf",
+						"Uncle": "isUncleOf",
+						"Aunt": "isAuntOf",
+						"Cousin": "isCousinOf",
+						"Nephew": "isNephewOf",
+						"Niece": "isNieceOf",
+						"Son-in-law": "isSonInLawOf",
+						"Daughter-in-law": "isDaughterInLawOf",
+						"Brother-in-law": "isBrotherInLawOf",
+						"Sister-in-law": "isSisterInLawOf",
+						"Father-in-law": "isFatherInLawOf",
+						"Mother-in-law": "isMotherInLawOf"
+					};
+					predicate = relationMap[relation] || null;
+				}
+			} else {
+				// 1870 Census Logic (Inferred-based)
+				who = "1870Census";
+				confidence = 0.5;
+
+				// Rule 75: isSpouseOf
+				if (next && self.gender === 'M' && next.gender === 'F') {
+					const selfYear = self.birth_year || 0;
+					const nextYear = next.birth_year || 0;
+					const yearDiff = selfYear - nextYear;
+					if (yearDiff >= -5 && yearDiff <= 15) {
+						predicate = 'isSpouseOf';
+					}
+				}
+
+				// Rule 76: isMotherOf
+				if (!predicate && next && self.gender === 'F') {
+					const nextAge = parseInt(selectedSource.year) - (next.birth_year || 0);
+					if (nextAge < 14) {
+						predicate = 'isMotherOf';
+					}
+				}
+
+				// Rule 77: isSiblingOf
+				if (!predicate && next) {
+					const ageDiff = Math.abs((self.birth_year || 0) - (next.birth_year || 0));
+					if (ageDiff <= 20) {
+						predicate = 'isSiblingOf';
+					}
+				}
+			}
+
+			if (predicate) {
+				const assertion = {
+					subject_id: head.mention_id,
+					predicate: predicate,
+					county: selectedSource.county || '',
+					object_id: self.mention_id,
+					who: who,
+					start_year: parseInt(selectedSource.year),
+					confidence: confidence
+				};
+
+				try {
+					await saveAssertion(assertion);
+					assertionCount++;
+				} catch (err) {
+					log(`Failed to create assertion: ${err.message}`, true);
+				}
+			}
+		}
+	}
+
+	log(`Created ${assertionCount} household assertions.`);
+}
+
+async function saveAssertion(assertion) {
+	const res = await fetch(`${POSTGREST_URL}/assertions`, {
+		method: 'POST',
+		headers: API_HEADERS,
+		body: JSON.stringify(assertion)
+	});
+	if (!res.ok) {
+		const err = await res.text();
+		throw new Error(err);
+	}
+}
+
 // Basic Stubs for Normalization Algorithms
 function simpleNysiis(str) {
 	if (!str) return '';
@@ -378,10 +620,10 @@ function simpleNysiis(str) {
 }
 
 function simpleRaceNorm(str) {
+	if (!str) return 'B';
 	const s = str.toLowerCase();
-	if (s.startsWith('w')) return 'W';
-	if (s.startsWith('b') || s.startsWith('m') || s.startsWith('c')) return 'B';
-	return '';
+	if (s.startsWith('w') || s.startsWith('cauc')) return 'W';
+	return 'B';
 }
 
 const occupationCategories = [
@@ -409,28 +651,28 @@ const occupationCategories = [
 
 function normalizeOccupation(raw) {
 	if (!raw) return '';
-	
+
 	let s = raw.toLowerCase();
-	
+
 	// Remove punctuation
 	s = s.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "");
-	
+
 	// Remove specific words
 	const removeWords = ["assist", "assistant", "intern", "app", "appren", "apprentice", "apprenticed"];
 	removeWords.forEach(w => {
 		const regex = new RegExp(`\\b${w}\\b`, 'gi');
 		s = s.replace(regex, '');
 	});
-	
+
 	s = s.replace(/\s{2,}/g, " ").trim();
 	if (!s) return '';
-	
+
 	// Keyword matching overrides
 	if (s.includes('school') || s.includes('university') || s.includes('prof')) return 'EDUCATION';
 	if (s.includes('farm')) return 'AGRICULTURE';
 	if (s.includes('maid') || s.includes('house')) return 'DOMESTIC';
 	if (s.includes('r r')) return 'TRANSPORTATION';
-	
+
 	// Match categories
 	for (const cat of occupationCategories) {
 		for (const ex of cat.examples) {
@@ -439,7 +681,7 @@ function normalizeOccupation(raw) {
 			}
 		}
 	}
-	
+
 	return s.toUpperCase();
 }
 
@@ -520,13 +762,13 @@ const nicknames = {
 
 function normalizeFirstName(raw) {
 	if (!raw) return '';
-	
+
 	// Remove all non-alphabetic characters except spaces, and convert to uppercase
 	let cleaned = raw.toUpperCase().replace(/[^A-Z\s]/g, '');
-	
+
 	// Split into parts (e.g. "ROBT J" -> ["ROBT", "J"])
 	let parts = cleaned.split(/\s+/);
-	
+
 	// Map each part if it's in the nickname dictionary
 	let mappedParts = parts.map(p => {
 		if (nicknames[p]) {
@@ -534,7 +776,7 @@ function normalizeFirstName(raw) {
 		}
 		return p;
 	});
-	
+
 	// Return the uppercase string
 	return mappedParts.join(' ').trim();
 }

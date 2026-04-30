@@ -15,7 +15,6 @@
             <select id="source-select">
                 <option value="">-- Loading sources... --</option>
             </select>
-            <button id="load-btn" disabled>Load Preview</button>
         </div>
 
         <div id="preview-section" class="hidden">
@@ -29,6 +28,9 @@
                 </table>
             </div>
             <div class="actions">
+                <label>
+                    <input type="checkbox" id="limit-checkbox" checked> Ingest only 50 rows
+                </label>
                 <button id="process-btn">Agree & Process File</button>
             </div>
         </div>

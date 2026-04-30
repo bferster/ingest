@@ -35,7 +35,6 @@
 
 	- Most of the fields in file match the same as the mentions' fields.	
 	- The source field is set to "ALB_FindAGrave".
-	- The source_type field is set to "FindAGrave".
-	- The original_data field is set to the entire row as a JSONB object
+	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.8 apply the normalization as described in @Normalize.md
 	- Get the location_id as described in @GetLocation.md using the location field.

@@ -45,7 +45,6 @@
 
 	- Most of the fields in file match the same as the mentions' fields	
 	- The source field is set to "ALB_FBR" 
-	- The source_type field is set to "FreeBlackRegister"
 	- The source_year field is set to the date column field value.
 	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.85.

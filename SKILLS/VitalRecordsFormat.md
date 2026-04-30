@@ -59,7 +59,6 @@
 		- if mother mentioned add an mention for the mother.
 		- if father mentioned add an mention for the father.
 		- The source field is set to "ALB_VR_1715".
-		- The source_type field is set to "vitalRecords".
 		- The gender field is set to "F" for the mother and "M" for the father.
 		- The source_year field is set to the year in the record_year field.
 		- The original_data field is set to the entire row as a JSONB object
