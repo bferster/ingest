@@ -61,6 +61,7 @@ The process for ingesting a source is:
 		Use the markdown file in the format field to guide the process
 		For each row in loaded table {
 			Show a progress indicator while processing, and log any failed row inserts to the console without halting the entire batch.
+			Show time estimator while ingesting source rows to the right of the progress indicator.
 			To avoid deduplification, check for existing rows with matching original_data and full_name fields before inserting.
 			Extract the row and add to the original_data field as JSONB.
 			Ignore fields that are not present in source and transform and store values 
@@ -81,8 +82,9 @@ The process for ingesting a source is:
 **POST-HOC MENTIONS**
 
 	For each mention that has a source_type of “census” in a MENTIONS table {
-		Create a new unique household identifier, when it encounters a new dwelling value with the same source_year. Format as HC{source_year}-{dwelling}, i.e. HC1870-123455. 
-		Create a new unique family identifier, such as when it encounters a new family value for the same source_year. Format as FC{source_year}-{family}, i.e. FC1880-123433. 
+		Show a progress indicator while processing, and log any failed row inserts to the console without halting the entire batch.
+		Show time estimator while ingesting source rows to the right of the progress indicator.
+]		Create a new unique family identifier, such as when it encounters a new family value for the same source_year. Format as FC{source_year}-{family}, i.e. FC1880-123433. 
 		For each mention with the same source_year with that dwelling value, that mention’s household_id is set.
 		For each mention with the same source_year with that family value, that mention’s family_id is set.
 		Save changed mention to PostgreSQL as an update..
@@ -91,7 +93,8 @@ The process for ingesting a source is:
 **ASSERTIONS**
 
 	Assertions are created in two passes. Only the first pass will be implemented in this phase.  It then writes all assertions that do not depend on scoring: isHousemateOf, inFamilyOf, isNeighborOf, wasEnslavedBy, isLocatedAt, and any family relationship assertions from Bureau and vital records. 
-
+			Show a progress indicator while processing, and log any failed row inserts to the console without halting the entire batch.
+			Show time estimator while ingesting source rows to the right of the progress indicator.
 
 	The format for representing these relationships is: 
 

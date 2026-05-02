@@ -192,6 +192,27 @@ processBtn.addEventListener('click', async () => {
 	let processedRows = 0;
 
 	log(`Starting ingestion of ${totalRows} rows${useLimit ? ' (Limited to 50)' : ''}...`);
+	const startTime = Date.now();
+
+	// Fast deduplication: Fetch existing mentions for this source once at the start
+	const dbSource = await getDatabaseSource(selectedSource);
+	log('Checking for existing records to avoid duplicates...');
+	let existingHashes = new Set();
+	try {
+		const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&select=original_data`, { headers: API_HEADERS });
+		if (res.ok) {
+			const existing = await res.json();
+			existing.forEach(m => {
+				existingHashes.add(JSON.stringify(m.original_data));
+			});
+			log(`Found ${existingHashes.size} existing records in database.`);
+		}
+	} catch (err) {
+		log('Could not fetch existing records for deduplication, proceeding without fast check.', true);
+	}
+
+	const BATCH_SIZE = 100;
+	let batch = [];
 
 	for (let i = 0; i < totalRows; i++) {
 		if (stopIngestion) {
@@ -200,16 +221,33 @@ processBtn.addEventListener('click', async () => {
 		}
 
 		const row = currentCsvData[i];
-		try {
-			await processRow(row);
-		} catch (err) {
-			log(`Failed inserting row ${i + 1}: ${err.message}`, true);
+		const originalDataStr = JSON.stringify(row);
+
+		if (existingHashes.has(originalDataStr)) {
+			processedRows++;
+			if (processedRows % 10 === 0 || processedRows === totalRows) {
+				updateProgress(processedRows, totalRows, startTime);
+			}
+			continue;
 		}
 
-		processedRows++;
-		updateProgress(processedRows, totalRows);
+		try {
+			const mention = await prepareMention(row);
+			batch.push(mention);
+
+			if (batch.length >= BATCH_SIZE || i === totalRows - 1) {
+				await insertBatch(batch);
+				processedRows += batch.length;
+				batch = [];
+				updateProgress(processedRows, totalRows, startTime);
+			}
+		} catch (err) {
+			log(`Error processing batch near row ${i + 1}: ${err.message}`, true);
+		}
 	}
 
+	// Final progress update if needed
+	updateProgress(processedRows, totalRows, startTime);
 	log(`Finished row ingestion.`);
 
 	// Post-hoc Mentions and Assertions
@@ -231,16 +269,45 @@ processBtn.addEventListener('click', async () => {
 	stopBtn.disabled = true;
 });
 
+async function insertBatch(batch) {
+	if (batch.length === 0) return;
+	const postRes = await fetch(`${POSTGREST_URL}/mentions`, {
+		method: 'POST',
+		headers: {
+			...API_HEADERS,
+			'Prefer': 'return=representation'
+		},
+		body: JSON.stringify(batch)
+	});
+
+	if (!postRes.ok) {
+		const err = await postRes.text();
+		throw new Error(`Batch insert failed: ${err}`);
+	}
+}
+
 stopBtn.addEventListener('click', () => {
 	stopIngestion = true;
 	stopBtn.disabled = true;
 	log('Stop signal received. Stopping after current row completes...');
 });
 
-function updateProgress(processed, total) {
+function updateProgress(processed, total, startTime, stage = 'rows processed') {
 	const percentage = Math.round((processed / total) * 100);
 	progressFill.style.width = `${percentage}%`;
-	progressText.textContent = `${processed} / ${total} rows processed`;
+	
+	let estText = '';
+	if (processed >= 5 && startTime) {
+		const elapsed = (Date.now() - startTime) / 1000; // in seconds
+		const timePerRow = elapsed / processed;
+		const remaining = (total - processed) * timePerRow;
+		
+		const mins = Math.floor(remaining / 60);
+		const secs = Math.floor(remaining % 60);
+		estText = ` (Est. remaining: ${mins}m ${secs}s)`;
+	}
+	
+	progressText.textContent = `${processed} / ${total} ${stage}${estText}`;
 }
 
 // Sub-functions for processing
@@ -253,28 +320,13 @@ function getRowValue(obj, key) {
 	return foundKey ? obj[foundKey] : undefined;
 }
 
-async function processRow(row) {
+async function prepareMention(row) {
 	// 1. Extract full_name and basic normalization
 	const firstName = row.first_name || row.FirstName || row.GivenName || '';
 	const middleName = row.middle_name || row.MiddleName || '';
 	const lastName = row.last_name || row.LastName || row.Surname || '';
 	const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ').trim();
 
-	// 2. Check for existing row to avoid deduplication
-	// Construct original_data JSONB
-	const originalData = JSON.stringify(row);
-
-	// Note: Checking exact JSONB match in PostgREST is complex via query params,
-	// so we fetch by full_name and check in memory.
-	const getRes = await fetch(`${POSTGREST_URL}/mentions?full_name=eq.${encodeURIComponent(fullName)}`, { headers: API_HEADERS });
-	if (getRes.ok) {
-		const existingMentions = await getRes.json();
-		const duplicate = existingMentions.find(m => JSON.stringify(m.original_data) === originalData);
-		if (duplicate) {
-			log(`Skipping duplicate for ${fullName}`);
-			return;
-		}
-	}
 
 	// 3. Normalize fields (Stubbing the advanced logic outlined in Normalize.md)
 	const nysiisLastName = simpleNysiis(lastName);
@@ -322,26 +374,7 @@ async function processRow(row) {
 	};
 
 	applyFormatSpecificRules(mention, row);
-
-	console.log(mention);
-	const postRes = await fetch(`${POSTGREST_URL}/mentions`, {
-		method: 'POST',
-		headers: {
-			...API_HEADERS,
-			'Prefer': 'return=representation'
-		},
-		body: JSON.stringify(mention)
-	});
-
-	if (!postRes.ok) {
-		const err = await postRes.text();
-		throw new Error(err);
-	}
-
-	const insertedMention = await postRes.json();
-
-	// 6. Stub for assertions processing
-	await createAssertions(insertedMention[0] || insertedMention, row);
+	return mention;
 }
 
 async function getDatabaseSource(source) {
@@ -448,13 +481,23 @@ async function processPostHocMentions() {
 
 	const dbSource = await getDatabaseSource(selectedSource);
 
-	// Fetch mentions for the current source
-	const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}`, { headers: API_HEADERS });
-	if (!res.ok) {
-		throw new Error('Failed to fetch mentions for post-hoc processing');
+	let allMentions = [];
+	let offset = 0;
+	const limit = 1000;
+
+	while (true) {
+		const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+		if (!res.ok) {
+			throw new Error('Failed to fetch mentions for post-hoc processing');
+		}
+		const data = await res.json();
+		if (data.length === 0) break;
+		allMentions = allMentions.concat(data);
+		if (data.length < limit) break;
+		offset += limit;
 	}
 
-	const mentions = await res.json();
+	const mentions = allMentions;
 
 	if (selectedSource.format.includes('SlaveSchedule')) {
 		await processEnslaverMentions(mentions);
@@ -472,42 +515,73 @@ async function processPostHocMentions() {
 	}
 
 	// Group by source_year and dwelling/family (Census logic)
-	const updates = [];
+	log(`Found ${mentions.length} mentions to check for household/family IDs.`);
+
+	// Group mention IDs by their target household_id and family_id
+	const householdGroups = {}; // household_id -> [mention_id]
+	const familyGroups = {};    // family_id -> [mention_id]
 
 	mentions.forEach(m => {
-		if (!m.source_year) return;
+		if (!m.source_year || !m.original_data) return;
 
-		let needsUpdate = false;
-		let updateObj = {};
-
-		if (m.original_data && m.original_data.dwelling) {
-			updateObj.household_id = `HC${m.source_year}-${m.original_data.dwelling}`;
-			needsUpdate = true;
+		if (m.original_data.dwelling) {
+			const hId = `HC${m.source_year}-${m.original_data.dwelling}`;
+			if (!householdGroups[hId]) householdGroups[hId] = [];
+			householdGroups[hId].push(m.mention_id);
 		}
 
-		if (m.original_data && m.original_data.family) {
-			updateObj.family_id = `FC${m.source_year}-${m.original_data.family}`;
-			needsUpdate = true;
-		}
-
-		if (needsUpdate) {
-			updates.push({
-				mention_id: m.mention_id,
-				...updateObj
-			});
+		if (m.original_data.family) {
+			const fId = `FC${m.source_year}-${m.original_data.family}`;
+			if (!familyGroups[fId]) familyGroups[fId] = [];
+			familyGroups[fId].push(m.mention_id);
 		}
 	});
 
-	log(`Found ${updates.length} mentions to update with household/family IDs.`);
+	const hKeys = Object.keys(householdGroups);
+	const fKeys = Object.keys(familyGroups);
+	log(`Updating ${hKeys.length} households and ${fKeys.length} families...`);
 
-	// Process updates
-	for (const update of updates) {
-		const { mention_id, ...data } = update;
-		await fetch(`${POSTGREST_URL}/mentions?mention_id=eq.${mention_id}`, {
-			method: 'PATCH',
-			headers: API_HEADERS,
-			body: JSON.stringify(data)
-		});
+	let processed = 0;
+	const total = hKeys.length + fKeys.length;
+	const startTime = Date.now();
+
+	// Update Households
+	for (const hId of hKeys) {
+		processed++;
+		updateProgress(processed, total, startTime, 'household/family groups updated');
+		const ids = householdGroups[hId];
+		try {
+			// Chunk IDs if there are too many for a single URL (unlikely but safe)
+			for (let i = 0; i < ids.length; i += 100) {
+				const chunk = ids.slice(i, i + 100);
+				await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${chunk.join(',')})`, {
+					method: 'PATCH',
+					headers: API_HEADERS,
+					body: JSON.stringify({ household_id: hId })
+				});
+			}
+		} catch (err) {
+			log(`Failed to update household ${hId}: ${err.message}`, true);
+		}
+	}
+
+	// Update Families
+	for (const fId of fKeys) {
+		processed++;
+		updateProgress(processed, total, startTime, 'household/family groups updated');
+		const ids = familyGroups[fId];
+		try {
+			for (let i = 0; i < ids.length; i += 100) {
+				const chunk = ids.slice(i, i + 100);
+				await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${chunk.join(',')})`, {
+					method: 'PATCH',
+					headers: API_HEADERS,
+					body: JSON.stringify({ family_id: fId })
+				});
+			}
+		} catch (err) {
+			log(`Failed to update family ${fId}: ${err.message}`, true);
+		}
 	}
 }
 
@@ -525,45 +599,50 @@ async function processEnslaverMentions(mentions) {
 	});
 
 	log(`Found ${enslavers.size} unique enslavers in processed data.`);
+	let processed = 0;
+	const total = enslavers.size;
+	const startTime = Date.now();
 
 	for (const [fullName, row] of enslavers) {
+		processed++;
+		updateProgress(processed, total, startTime, 'enslavers added');
 		// Check if enslaver already exists for this source to avoid duplicates
-		const checkRes = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(await getDatabaseSource(selectedSource))}&full_name=eq.${encodeURIComponent(fullName)}&is_enslaver=is.true`, { headers: API_HEADERS });
-		if (checkRes.ok) {
-			const existing = await checkRes.json();
-			if (existing.length > 0) {
-				log(`Enslaver ${fullName} already exists, skipping.`);
-				continue;
-			}
-		}
-
-		// Parsing name logic
-		const { first, middle, last } = parseGeneralName(fullName);
-
-		const enslaverMention = {
-			source: await getDatabaseSource(selectedSource),
-			source_year: parseInt(selectedSource.year),
-			county: selectedSource.county || '',
-			original_data: row,
-			confidence: 0.82,
-			full_name: fullName,
-			first_name: first,
-			middle_name: middle,
-			last_name: last,
-			legal_status: '',
-			is_enslaver: true,
-			norm_first_name: normalizeFirstName(first),
-			nysiis_last_name: simpleNysiis(last)
-		};
-
 		try {
+			const checkRes = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(await getDatabaseSource(selectedSource))}&full_name=eq.${encodeURIComponent(fullName)}&is_enslaver=is.true`, { headers: API_HEADERS });
+			if (checkRes.ok) {
+				const existing = await checkRes.json();
+				if (existing.length > 0) {
+					// log(`Enslaver ${fullName} already exists, skipping.`);
+					continue;
+				}
+			}
+
+			// Parsing name logic
+			const { first, middle, last } = parseGeneralName(fullName);
+
+			const enslaverMention = {
+				source: await getDatabaseSource(selectedSource),
+				source_year: parseInt(selectedSource.year),
+				county: selectedSource.county || '',
+				original_data: row,
+				confidence: 0.83,
+				full_name: fullName,
+				first_name: first,
+				middle_name: middle,
+				last_name: last,
+				legal_status: '',
+				is_enslaver: true,
+				norm_first_name: normalizeFirstName(first),
+				nysiis_last_name: simpleNysiis(last)
+			};
+
 			await fetch(`${POSTGREST_URL}/mentions`, {
 				method: 'POST',
 				headers: API_HEADERS,
 				body: JSON.stringify(enslaverMention)
 			});
 		} catch (err) {
-			log(`Failed to add enslaver ${fullName}: ${err.message}`, true);
+			log(`Failed to process enslaver ${fullName}: ${err.message}`, true);
 		}
 	}
 }
@@ -594,8 +673,15 @@ function parseGeneralName(fullName, isVitalRecordParent = false) {
 
 async function processVitalRecordPostHoc(mentions) {
 	log(`Processing Parent Mentions for ${mentions.length} Vital Records mentions...`);
+	let processed = 0;
+	const total = mentions.length;
+	const startTime = Date.now();
 
 	for (const childMention of mentions) {
+		processed++;
+		if (processed % 10 === 0 || processed === total) {
+			updateProgress(processed, total, startTime, 'records processed for parents');
+		}
 		const row = childMention.original_data;
 		if (!row) {
 			console.log('Mention missing original_data:', childMention.mention_id);
@@ -654,12 +740,23 @@ async function processPostHocAssertions() {
 
 	const dbSource = await getDatabaseSource(selectedSource);
 
-	const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}`, { headers: API_HEADERS });
-	if (!res.ok) {
-		throw new Error('Failed to fetch mentions for assertions');
+	let allMentions = [];
+	let offset = 0;
+	const limit = 1000;
+
+	while (true) {
+		const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+		if (!res.ok) {
+			throw new Error('Failed to fetch mentions for assertions');
+		}
+		const data = await res.json();
+		if (data.length === 0) break;
+		allMentions = allMentions.concat(data);
+		if (data.length < limit) break;
+		offset += limit;
 	}
 
-	const mentions = await res.json();
+	const mentions = allMentions;
 
 	if (selectedSource.format.includes('SlaveSchedule')) {
 		await processSlaveScheduleAssertions(mentions);
@@ -796,6 +893,19 @@ async function processPostHocAssertions() {
 	log(`Created ${assertionCount} household assertions.`);
 }
 
+async function saveAssertionsBatch(assertions) {
+	if (assertions.length === 0) return;
+	const res = await fetch(`${POSTGREST_URL}/assertions`, {
+		method: 'POST',
+		headers: API_HEADERS,
+		body: JSON.stringify(assertions)
+	});
+	if (!res.ok) {
+		const err = await res.text();
+		throw new Error(err);
+	}
+}
+
 async function processSlaveScheduleAssertions(mentions) {
 	log('Creating wasEnslavedBy assertions for Slave Schedule...');
 
@@ -808,36 +918,54 @@ async function processSlaveScheduleAssertions(mentions) {
 	});
 
 	let assertionCount = 0;
+	let processed = 0;
+	const total = enslaved.length;
+	const startTime = Date.now();
+	let assertionsBatch = [];
+
 	for (const m of enslaved) {
+		processed++;
+		if (processed % 10 === 0 || processed === total) {
+			updateProgress(processed, total, startTime, 'enslaved linked');
+		}
+
 		const enslaverName = getRowValue(m.original_data, 'enslaver_full_name');
 		const enslaverId = enslaverMap.get(enslaverName);
 
 		if (enslaverId) {
-			// Update enslaved mention with enslaver_id
-			await fetch(`${POSTGREST_URL}/mentions?mention_id=eq.${m.mention_id}`, {
-				method: 'PATCH',
-				headers: API_HEADERS,
-				body: JSON.stringify({ enslaver_id: enslaverId })
-			});
-
-			const assertion = {
-				subject_id: m.mention_id,
-				predicate: 'wasEnslavedBy',
-				county: selectedSource.county || '',
-				object_id: enslaverId,
-				who: 'slaveSchedule',
-				start_year: parseInt(selectedSource.year),
-				end_year: parseInt(selectedSource.year),
-				confidence: 0.8
-			};
-
 			try {
-				await saveAssertion(assertion);
-				assertionCount++;
+				// Update enslaved mention with enslaver_id
+				await fetch(`${POSTGREST_URL}/mentions?mention_id=eq.${m.mention_id}`, {
+					method: 'PATCH',
+					headers: API_HEADERS,
+					body: JSON.stringify({ enslaver_id: enslaverId })
+				});
+
+				const assertion = {
+					subject_id: m.mention_id,
+					predicate: 'wasEnslavedBy',
+					county: selectedSource.county || '',
+					object_id: enslaverId,
+					who: 'slaveSchedule',
+					start_year: parseInt(selectedSource.year),
+					end_year: parseInt(selectedSource.year),
+					confidence: 0.8
+				};
+
+				assertionsBatch.push(assertion);
+				if (assertionsBatch.length >= 100) {
+					await saveAssertionsBatch(assertionsBatch);
+					assertionCount += assertionsBatch.length;
+					assertionsBatch = [];
+				}
 			} catch (err) {
-				log(`Failed to create wasEnslavedBy assertion: ${err.message}`, true);
+				log(`Failed to link enslaver for row ${getRowValue(m.original_data, 'line')}: ${err.message}`, true);
 			}
 		}
+	}
+	if (assertionsBatch.length > 0) {
+		await saveAssertionsBatch(assertionsBatch);
+		assertionCount += assertionsBatch.length;
 	}
 	log(`Created ${assertionCount} wasEnslavedBy assertions and linked enslaver IDs.`);
 }
@@ -872,12 +1000,22 @@ async function processVitalRecordAssertions(mentions) {
 	});
 
 	let count = 0;
+	let processed = 0;
+	const total = Object.keys(groups).length;
+	const startTime = Date.now();
+	let assertionsBatch = [];
+
 	for (const line in groups) {
+		processed++;
+		if (processed % 10 === 0 || processed === total) {
+			updateProgress(processed, total, startTime, 'parent-child relationships matched');
+		}
+
 		const { child, mother, father } = groups[line];
 		if (!child) continue;
 
 		if (mother) {
-			await saveAssertion({
+			assertionsBatch.push({
 				subject_id: mother.mention_id,
 				predicate: 'IsMotherOf',
 				county: selectedSource.county || '',
@@ -887,10 +1025,9 @@ async function processVitalRecordAssertions(mentions) {
 				end_year: null,
 				confidence: 0.80
 			});
-			count++;
 		}
 		if (father) {
-			await saveAssertion({
+			assertionsBatch.push({
 				subject_id: father.mention_id,
 				predicate: 'IsFatherOf',
 				county: selectedSource.county || '',
@@ -900,8 +1037,17 @@ async function processVitalRecordAssertions(mentions) {
 				end_year: null,
 				confidence: 0.80
 			});
-			count++;
 		}
+
+		if (assertionsBatch.length >= 100) {
+			await saveAssertionsBatch(assertionsBatch);
+			count += assertionsBatch.length;
+			assertionsBatch = [];
+		}
+	}
+	if (assertionsBatch.length > 0) {
+		await saveAssertionsBatch(assertionsBatch);
+		count += assertionsBatch.length;
 	}
 	log(`Created ${count} parent-child assertions for Vital Records.`);
 }
