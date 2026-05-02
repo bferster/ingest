@@ -213,18 +213,22 @@ processBtn.addEventListener('click', async () => {
 	log(`Finished row ingestion.`);
 
 	// Post-hoc Mentions and Assertions
-	if (!stopIngestion) {
-		try {
-			await processPostHocMentions();
-			await processPostHocAssertions();
-		} catch (err) {
-			log(`Failed post-hoc processing: ${err.message}`, true);
-		}
+	if (stopIngestion) {
+		log('Ingestion stopped by user. Finalizing processed rows...');
 	} else {
-		log('Skipping Post-Hoc processing because ingestion was stopped.');
+		log('Ingestion complete. Starting post-hoc processing...');
+	}
+
+	try {
+		await processPostHocMentions();
+		await processPostHocAssertions();
+	} catch (err) {
+		log(`Failed post-hoc processing: ${err.message}`, true);
 	}
 
 	log(`Ingestion batch complete.`);
+	processBtn.disabled = false;
+	stopBtn.disabled = true;
 });
 
 stopBtn.addEventListener('click', () => {
@@ -240,6 +244,15 @@ function updateProgress(processed, total) {
 }
 
 // Sub-functions for processing
+// Helper for robust field lookup (handles case, whitespace, hyphens vs underscores)
+function getRowValue(obj, key) {
+	if (!obj) return undefined;
+	const normalize = (s) => s.toLowerCase().trim().replace(/[-_]/g, '');
+	const target = normalize(key);
+	const foundKey = Object.keys(obj).find(k => normalize(k) === target);
+	return foundKey ? obj[foundKey] : undefined;
+}
+
 async function processRow(row) {
 	// 1. Extract full_name and basic normalization
 	const firstName = row.first_name || row.FirstName || row.GivenName || '';
@@ -285,7 +298,7 @@ async function processRow(row) {
 
 	// 4. Construct Mention Object
 	const mention = {
-		source: selectedSource.display_name,
+		source: await getDatabaseSource(selectedSource),
 		source_year: parseInt(selectedSource.year),
 		county: selectedSource.county || '',
 		original_data: row, // will be converted to JSONB by PostgREST
@@ -331,6 +344,16 @@ async function processRow(row) {
 	await createAssertions(insertedMention[0] || insertedMention, row);
 }
 
+async function getDatabaseSource(source) {
+	const format = source.format || '';
+	if (format.includes('SlaveSchedule')) return `ALB_SS-${source.year}`;
+	if (format.includes('FreeBlackRegister')) return "ALB_FBR";
+	if (format.includes('FindAGrave')) return "ALB_FindAGrave";
+	if (format.includes('FreedmansList')) return "ALB_FL-1865";
+	if (format.includes('VitalRecord')) return "ALB_VR_1715";
+	return source.display_name;
+}
+
 async function applyFormatSpecificRules(mention, row) {
 	const format = selectedSource.format || '';
 
@@ -341,7 +364,6 @@ async function applyFormatSpecificRules(mention, row) {
 
 	// FreeBlackRegister
 	if (format.includes('FreeBlackRegister')) {
-		mention.source = "ALB_FBR";
 		mention.legal_status = 'F';
 		mention.confidence = 0.85;
 
@@ -371,31 +393,25 @@ async function applyFormatSpecificRules(mention, row) {
 			if (match) {
 				const inches = parseInt(match[1]) * 12 + parseInt(match[2]);
 				mention.original_data.height = inches;
-				console.log(`Converted height ${row.height} to ${inches} inches`);
-			} else {
-				console.log(`Failed to parse height format: ${row.height}`);
 			}
 		} else if (row.Height) {
 			const match = row.Height.match(/(\d+)\s*'\s*(\d+)\s*"?/);
 			if (match) {
 				const inches = parseInt(match[1]) * 12 + parseInt(match[2]);
 				mention.original_data.Height = inches;
-				console.log(`Converted height ${row.Height} to ${inches} inches`);
-			} else {
-				console.log(`Failed to parse height format: ${row.Height}`);
 			}
 		}
 	}
 
 	// FindAGrave
 	if (format.includes('FindAGrave')) {
-		mention.source = "ALB_FindAGrave";
 		mention.confidence = 0.8;
 	}
 
 	// FreedmansList
 	if (format.includes('FreedmansList')) {
-		mention.source = "ALB_FL-1865";
+		mention.legal_status = 'F';
+		mention.norm_race = 'B';
 		if (row.record_year) {
 			const yr = parseInt(row.record_year);
 			if (!isNaN(yr)) mention.source_year = yr;
@@ -404,11 +420,20 @@ async function applyFormatSpecificRules(mention, row) {
 
 	// VitalRecord
 	if (format.includes('VitalRecord')) {
-		mention.source = "ALB_VR_1715";
+		mention.confidence = 0.84;
 		if (row.record_year) {
 			const yr = parseInt(row.record_year);
 			if (!isNaN(yr)) mention.source_year = yr;
+		} else if (row.birth_year) {
+			const yr = parseInt(row.birth_year);
+			if (!isNaN(yr)) mention.source_year = yr;
 		}
+	}
+
+	// SlaveSchedule
+	if (format.includes('SlaveSchedule')) {
+		mention.legal_status = 'E';
+		mention.confidence = 0.82;
 	}
 }
 
@@ -421,15 +446,32 @@ async function createAssertions(mention, row) {
 async function processPostHocMentions() {
 	log('Starting Post-Hoc Mentions processing...');
 
+	const dbSource = await getDatabaseSource(selectedSource);
+
 	// Fetch mentions for the current source
-	const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(selectedSource.display_name)}`, { headers: API_HEADERS });
+	const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}`, { headers: API_HEADERS });
 	if (!res.ok) {
-		throw new Error('Failed to fetch census mentions for post-hoc processing');
+		throw new Error('Failed to fetch mentions for post-hoc processing');
 	}
 
 	const mentions = await res.json();
 
-	// Group by source_year and dwelling/family
+	if (selectedSource.format.includes('SlaveSchedule')) {
+		await processEnslaverMentions(mentions);
+		return;
+	}
+
+	if (selectedSource.format.includes('VitalRecord')) {
+		await processVitalRecordPostHoc(mentions);
+		return;
+	}
+
+	if (!selectedSource.format.includes('Census')) {
+		log('Skipping Census post-hoc processing for non-census format.');
+		return;
+	}
+
+	// Group by source_year and dwelling/family (Census logic)
 	const updates = [];
 
 	mentions.forEach(m => {
@@ -469,17 +511,170 @@ async function processPostHocMentions() {
 	}
 }
 
+async function processEnslaverMentions(mentions) {
+	log('Processing Enslaver Mentions for Slave Schedule...');
+
+	const enslaved = mentions.filter(m => m.legal_status === 'E');
+	const enslavers = new Map(); // name -> original_row
+
+	enslaved.forEach(m => {
+		const name = getRowValue(m.original_data, 'enslaver_full_name');
+		if (name && !enslavers.has(name)) {
+			enslavers.set(name, m.original_data);
+		}
+	});
+
+	log(`Found ${enslavers.size} unique enslavers in processed data.`);
+
+	for (const [fullName, row] of enslavers) {
+		// Check if enslaver already exists for this source to avoid duplicates
+		const checkRes = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(await getDatabaseSource(selectedSource))}&full_name=eq.${encodeURIComponent(fullName)}&is_enslaver=is.true`, { headers: API_HEADERS });
+		if (checkRes.ok) {
+			const existing = await checkRes.json();
+			if (existing.length > 0) {
+				log(`Enslaver ${fullName} already exists, skipping.`);
+				continue;
+			}
+		}
+
+		// Parsing name logic
+		const { first, middle, last } = parseGeneralName(fullName);
+
+		const enslaverMention = {
+			source: await getDatabaseSource(selectedSource),
+			source_year: parseInt(selectedSource.year),
+			county: selectedSource.county || '',
+			original_data: row,
+			confidence: 0.82,
+			full_name: fullName,
+			first_name: first,
+			middle_name: middle,
+			last_name: last,
+			legal_status: '',
+			is_enslaver: true,
+			norm_first_name: normalizeFirstName(first),
+			nysiis_last_name: simpleNysiis(last)
+		};
+
+		try {
+			await fetch(`${POSTGREST_URL}/mentions`, {
+				method: 'POST',
+				headers: API_HEADERS,
+				body: JSON.stringify(enslaverMention)
+			});
+		} catch (err) {
+			log(`Failed to add enslaver ${fullName}: ${err.message}`, true);
+		}
+	}
+}
+
+function parseGeneralName(fullName, isVitalRecordParent = false) {
+	const parts = fullName.trim().split(/\s+/);
+	let first = '', middle = '', last = '';
+
+	const suffixes = ['jr', 'sr', 'ii', 'iii', 'iv', '2nd', '3rd', '4th', '5th'];
+	let lastIdx = parts.length - 1;
+	if (lastIdx > 0 && suffixes.includes(parts[lastIdx].toLowerCase().replace(/[.,]/g, ''))) {
+		lastIdx--;
+	}
+
+	if (parts.length === 1) {
+		last = parts[0];
+		if (isVitalRecordParent) first = parts[0];
+	} else if (parts.length === 2) {
+		first = parts[0];
+		last = parts[lastIdx];
+	} else {
+		first = parts[0];
+		middle = parts.slice(1, lastIdx).join(' ').replace(/[.,]/g, '');
+		last = parts[lastIdx];
+	}
+	return { first, middle, last };
+}
+
+async function processVitalRecordPostHoc(mentions) {
+	log(`Processing Parent Mentions for ${mentions.length} Vital Records mentions...`);
+
+	for (const childMention of mentions) {
+		const row = childMention.original_data;
+		if (!row) {
+			console.log('Mention missing original_data:', childMention.mention_id);
+			continue;
+		}
+
+		const motherName = getRowValue(row, 'mother');
+		const fatherName = getRowValue(row, 'father');
+
+		// Skip if this mention itself IS the mother or father (already processed)
+		if (childMention.full_name === motherName || childMention.full_name === fatherName) {
+			continue;
+		}
+
+		const parents = [
+			{ name: motherName, gender: 'F' },
+			{ name: fatherName, gender: 'M' }
+		];
+
+		for (const p of parents) {
+			if (p.name && p.name.trim()) {
+				const fullName = p.name.replace(/[.,]/g, '').trim();
+				const { first, middle, last } = parseGeneralName(fullName, true);
+
+				const parentMention = {
+					source: "ALB_VR_1715",
+					source_year: childMention.source_year,
+					county: selectedSource.county || '',
+					original_data: row,
+					confidence: 0.85,
+					full_name: fullName,
+					first_name: first,
+					middle_name: middle,
+					last_name: last,
+					gender: p.gender,
+					norm_first_name: normalizeFirstName(first),
+					nysiis_last_name: simpleNysiis(last)
+				};
+
+				try {
+					await fetch(`${POSTGREST_URL}/mentions`, {
+						method: 'POST',
+						headers: API_HEADERS,
+						body: JSON.stringify(parentMention)
+					});
+				} catch (err) {
+					log(`Failed to add parent ${fullName}: ${err.message}`, true);
+				}
+			}
+		}
+	}
+}
+
 async function processPostHocAssertions() {
 	log('Starting Post-Hoc Assertions processing...');
 
-	// Fetch all mentions for this source, ordered by mention_id as a proxy for insertion order 
-	// (though we'll sort by 'line' if available)
-	const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(selectedSource.display_name)}`, { headers: API_HEADERS });
+	const dbSource = await getDatabaseSource(selectedSource);
+
+	const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}`, { headers: API_HEADERS });
 	if (!res.ok) {
 		throw new Error('Failed to fetch mentions for assertions');
 	}
 
 	const mentions = await res.json();
+
+	if (selectedSource.format.includes('SlaveSchedule')) {
+		await processSlaveScheduleAssertions(mentions);
+		return;
+	}
+
+	if (selectedSource.format.includes('VitalRecord')) {
+		await processVitalRecordAssertions(mentions);
+		return;
+	}
+
+	if (!selectedSource.format.includes('Census')) {
+		log('Skipping Census post-hoc assertions for non-census format.');
+		return;
+	}
 
 	// Sort by line number from original_data to maintain enumeration order
 	mentions.sort((a, b) => {
@@ -601,7 +796,118 @@ async function processPostHocAssertions() {
 	log(`Created ${assertionCount} household assertions.`);
 }
 
+async function processSlaveScheduleAssertions(mentions) {
+	log('Creating wasEnslavedBy assertions for Slave Schedule...');
+
+	const enslaved = mentions.filter(m => m.legal_status === 'E');
+	const enslavers = mentions.filter(m => m.is_enslaver === true);
+
+	const enslaverMap = new Map(); // full_name -> mention_id
+	enslavers.forEach(e => {
+		enslaverMap.set(e.full_name, e.mention_id);
+	});
+
+	let assertionCount = 0;
+	for (const m of enslaved) {
+		const enslaverName = getRowValue(m.original_data, 'enslaver_full_name');
+		const enslaverId = enslaverMap.get(enslaverName);
+
+		if (enslaverId) {
+			// Update enslaved mention with enslaver_id
+			await fetch(`${POSTGREST_URL}/mentions?mention_id=eq.${m.mention_id}`, {
+				method: 'PATCH',
+				headers: API_HEADERS,
+				body: JSON.stringify({ enslaver_id: enslaverId })
+			});
+
+			const assertion = {
+				subject_id: m.mention_id,
+				predicate: 'wasEnslavedBy',
+				county: selectedSource.county || '',
+				object_id: enslaverId,
+				who: 'slaveSchedule',
+				start_year: parseInt(selectedSource.year),
+				end_year: parseInt(selectedSource.year),
+				confidence: 0.8
+			};
+
+			try {
+				await saveAssertion(assertion);
+				assertionCount++;
+			} catch (err) {
+				log(`Failed to create wasEnslavedBy assertion: ${err.message}`, true);
+			}
+		}
+	}
+	log(`Created ${assertionCount} wasEnslavedBy assertions and linked enslaver IDs.`);
+}
+
+async function processVitalRecordAssertions(mentions) {
+	log(`Creating Parent-Child assertions for ${mentions.length} Vital Records mentions...`);
+
+	// Group by original_data line number
+	const groups = {};
+
+	mentions.forEach(m => {
+		const row = m.original_data;
+		const line = getRowValue(row, 'line');
+		if (!line) return;
+
+		if (!groups[line]) groups[line] = { child: null, mother: null, father: null };
+
+		const motherName = getRowValue(row, 'mother');
+		const fatherName = getRowValue(row, 'father');
+
+		if (motherName && m.full_name === motherName && m.gender === 'F') {
+			groups[line].mother = m;
+		} else if (fatherName && m.full_name === fatherName && m.gender === 'M') {
+			groups[line].father = m;
+		} else {
+			// It's the child if it's not a parent we recognized
+			// Prefer the mention created first (lowest ID) as the child
+			if (!groups[line].child || m.mention_id < groups[line].child.mention_id) {
+				groups[line].child = m;
+			}
+		}
+	});
+
+	let count = 0;
+	for (const line in groups) {
+		const { child, mother, father } = groups[line];
+		if (!child) continue;
+
+		if (mother) {
+			await saveAssertion({
+				subject_id: mother.mention_id,
+				predicate: 'IsMotherOf',
+				county: selectedSource.county || '',
+				object_id: child.mention_id,
+				who: 'vitalRecords',
+				start_year: child.source_year,
+				end_year: null,
+				confidence: 0.80
+			});
+			count++;
+		}
+		if (father) {
+			await saveAssertion({
+				subject_id: father.mention_id,
+				predicate: 'IsFatherOf',
+				county: selectedSource.county || '',
+				object_id: child.mention_id,
+				who: 'vitalRecords',
+				start_year: child.source_year,
+				end_year: null,
+				confidence: 0.80
+			});
+			count++;
+		}
+	}
+	log(`Created ${count} parent-child assertions for Vital Records.`);
+}
+
 async function saveAssertion(assertion) {
+	console.log(assertion);
 	const res = await fetch(`${POSTGREST_URL}/assertions`, {
 		method: 'POST',
 		headers: API_HEADERS,
@@ -620,9 +926,9 @@ function simpleNysiis(str) {
 }
 
 function simpleRaceNorm(str) {
-	if (!str) return 'B';
-	const s = str.toLowerCase();
-	if (s.startsWith('w') || s.startsWith('cauc')) return 'W';
+	if (!str) return '';
+	const s = str.trim().toLowerCase();
+	if (s === 'w' || s.startsWith('cauc') || s === 'white') return 'W';
 	return 'B';
 }
 

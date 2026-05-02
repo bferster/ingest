@@ -45,5 +45,6 @@
 	- The confidence field is set to 0.8
 	- The legal_status field is set to "F"
 	- Apply the normalization as described in @Normalize.md
+	- The norm_race field is set to "B"
 	- Get the location_id as described in @GetLocation.md using the location field
 	- Share surname - TODO: Get rules from Lynn before implementation

@@ -20,7 +20,8 @@
 
 	If the field is "race" {
 		- Create a new field name that is the same as the field name but with "norm_" prepended to it.
-		- If the race is "W", "Cauc", "Caucasian" or "White" norm_race is set to "W".
+		- If race is null, set norm_race to ''.
+		- Else if the race is "W", "Cauc", "Caucasian" or "White" norm_race is set to "W".
 		- Else norm_race is set to "B".
 		}
 

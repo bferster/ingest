@@ -45,7 +45,7 @@ The following SQL commands define the schema for the various tables needed:
 		gender VARCHAR(1) CHECK (gender IN ('M','F','')),
 		occupation VARCHAR(100),
 		legal_status VARCHAR(100),
-		is_enslaver BOOLEAN DEFAULT FALSE,
+		is_enslaver BOOLEAN,
 
 		norm_first_name VARCHAR(100),
 		nysiis_last_name VARCHAR(100), 
@@ -54,7 +54,7 @@ The following SQL commands define the schema for the various tables needed:
 
 		enslaver_id UUID REFERENCES mentions(mention_id),
 		location_id UUID REFERENCES locations(location_id),
-		head BOOLEAN DEFAULT FALSE,
+		head BOOLEAN,
 		household_id VARCHAR(50),	
 		family_id VARCHAR(50),
 		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
