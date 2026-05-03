@@ -1,58 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ingest & Mentions Processing</title>
-    <link rel="stylesheet" href="style.css">
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Ingest & Mentions Processing</title>
+	<link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-    <div class="container">
-        <h1>Data Ingestion & Mentions</h1>
-        
-        <div class="controls">
-            <label for="source-select">Select Source to Ingest:</label>
-            <select id="source-select">
-                <option value="">-- Loading sources... --</option>
-            </select>
-        </div>
+	<div class="container">
+		<h1>Verite Source Ingestor</h1>
 
-        <div id="preview-section" class="hidden">
-            <h2>Data Preview (First 30 Rows)</h2>
-            <div class="table-container">
-                <table id="preview-table">
-                    <thead>
-                        <tr id="preview-headers"></tr>
-                    </thead>
-                    <tbody id="preview-body"></tbody>
-                </table>
-            </div>
-            <div class="actions">
-                <label>
-                    <input type="checkbox" id="limit-checkbox" checked> Ingest only 50 rows
-                </label>
-                <button id="process-btn">Agree & Process File</button>
-            </div>
-        </div>
+		<div class="controls">
+			<label for="source-select">Select Source to Ingest:</label>
+			<select id="source-select">
+				<option value="">-- Loading sources... --</option>
+			</select>
+		</div>
 
-        <div id="progress-section" class="hidden">
-            <h2>Processing Details</h2>
-            <div class="progress-bar">
-                <div id="progress-fill"></div>
-            </div>
-            <p id="progress-text">0 / 0 rows processed</p>
-            <div class="actions" style="margin-top: 10px;">
-                <button id="stop-btn" style="background-color: #dc3545;">Stop Ingestion</button>
-            </div>
-        </div>
-        
-        <div id="log-section">
-            <h2>System Logs</h2>
-            <pre id="log-output"></pre>
-        </div>
-    </div>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="app.js"></script>
+		<div id="preview-section" class="hidden">
+			<h2>Data Preview (First 30 Rows)</h2>
+			<div class="table-container">
+				<table id="preview-table">
+					<thead>
+						<tr id="preview-headers"></tr>
+					</thead>
+					<tbody id="preview-body"></tbody>
+				</table>
+			</div>
+			<div class="actions">
+				<label>
+					<input type="checkbox" id="limit-checkbox" checked> Ingest only 50 rows
+				</label>
+				<button id="process-btn">Agree & Process File</button>
+			</div>
+		</div>
+
+		<div id="progress-section" class="hidden">
+			<h2>Processing Details</h2>
+			<div class="progress-bar">
+				<div id="progress-fill"></div>
+			</div>
+			<p id="progress-text">0 / 0 rows processed</p>
+			<div class="actions" style="margin-top: 10px;">
+				<button id="stop-btn" style="background-color: #dc3545;">Stop Ingestion</button>
+			</div>
+		</div>
+
+		<div id="log-section">
+			<h2>System Logs</h2>
+			<pre id="log-output"></pre>
+		</div>
+	</div>
+
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+	<script src="app.js"></script>
 </body>
+
 </html>

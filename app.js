@@ -517,71 +517,55 @@ async function processPostHocMentions() {
 	// Group by source_year and dwelling/family (Census logic)
 	log(`Found ${mentions.length} mentions to check for household/family IDs.`);
 
-	// Group mention IDs by their target household_id and family_id
-	const householdGroups = {}; // household_id -> [mention_id]
-	const familyGroups = {};    // family_id -> [mention_id]
+	// Group mention IDs by their combined target IDs to minimize requests
+	const updateGroups = {}; // "hId|fId" -> [mention_id]
 
 	mentions.forEach(m => {
 		if (!m.source_year || !m.original_data) return;
-
-		if (m.original_data.dwelling) {
-			const hId = `HC${m.source_year}-${m.original_data.dwelling}`;
-			if (!householdGroups[hId]) householdGroups[hId] = [];
-			householdGroups[hId].push(m.mention_id);
-		}
-
-		if (m.original_data.family) {
-			const fId = `FC${m.source_year}-${m.original_data.family}`;
-			if (!familyGroups[fId]) familyGroups[fId] = [];
-			familyGroups[fId].push(m.mention_id);
-		}
+		const hId = m.original_data.dwelling ? `HC${m.source_year}-${m.original_data.dwelling}` : null;
+		const fId = m.original_data.family ? `FC${m.source_year}-${m.original_data.family}` : null;
+		
+		if (!hId && !fId) return;
+		
+		const key = `${hId || ''}|${fId || ''}`;
+		if (!updateGroups[key]) updateGroups[key] = [];
+		updateGroups[key].push(m.mention_id);
 	});
 
-	const hKeys = Object.keys(householdGroups);
-	const fKeys = Object.keys(familyGroups);
-	log(`Updating ${hKeys.length} households and ${fKeys.length} families...`);
+	const keys = Object.keys(updateGroups);
+	log(`Updating ${keys.length} combined household/family groups...`);
 
 	let processed = 0;
-	const total = hKeys.length + fKeys.length;
+	const total = keys.length;
 	const startTime = Date.now();
 
-	// Update Households
-	for (const hId of hKeys) {
-		processed++;
-		updateProgress(processed, total, startTime, 'household/family groups updated');
-		const ids = householdGroups[hId];
-		try {
-			// Chunk IDs if there are too many for a single URL (unlikely but safe)
-			for (let i = 0; i < ids.length; i += 100) {
-				const chunk = ids.slice(i, i + 100);
-				await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${chunk.join(',')})`, {
-					method: 'PATCH',
-					headers: API_HEADERS,
-					body: JSON.stringify({ household_id: hId })
-				});
-			}
-		} catch (err) {
-			log(`Failed to update household ${hId}: ${err.message}`, true);
-		}
-	}
+	// Process updates with a concurrency limit
+	const CONCURRENCY = 10;
+	for (let i = 0; i < keys.length; i += CONCURRENCY) {
+		const chunk = keys.slice(i, i + CONCURRENCY);
+		await Promise.all(chunk.map(async (key) => {
+			const [hId, fId] = key.split('|');
+			const ids = updateGroups[key];
+			const updateData = {};
+			if (hId) updateData.household_id = hId;
+			if (fId) updateData.family_id = fId;
 
-	// Update Families
-	for (const fId of fKeys) {
-		processed++;
-		updateProgress(processed, total, startTime, 'household/family groups updated');
-		const ids = familyGroups[fId];
-		try {
-			for (let i = 0; i < ids.length; i += 100) {
-				const chunk = ids.slice(i, i + 100);
-				await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${chunk.join(',')})`, {
-					method: 'PATCH',
-					headers: API_HEADERS,
-					body: JSON.stringify({ family_id: fId })
-				});
+			try {
+				// Chunk IDs if there are too many for a single URL
+				for (let j = 0; j < ids.length; j += 100) {
+					const idChunk = ids.slice(j, j + 100);
+					await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${idChunk.join(',')})`, {
+						method: 'PATCH',
+						headers: API_HEADERS,
+						body: JSON.stringify(updateData)
+					});
+				}
+			} catch (err) {
+				log(`Failed to update group ${key}: ${err.message}`, true);
 			}
-		} catch (err) {
-			log(`Failed to update family ${fId}: ${err.message}`, true);
-		}
+			processed++;
+		}));
+		updateProgress(processed, total, startTime, 'household/family groups updated');
 	}
 }
 
@@ -676,22 +660,19 @@ async function processVitalRecordPostHoc(mentions) {
 	let processed = 0;
 	const total = mentions.length;
 	const startTime = Date.now();
+	const parentsToCreate = [];
 
 	for (const childMention of mentions) {
 		processed++;
-		if (processed % 10 === 0 || processed === total) {
-			updateProgress(processed, total, startTime, 'records processed for parents');
+		if (processed % 100 === 0 || processed === total) {
+			updateProgress(processed, total, startTime, 'records scanned for parents');
 		}
 		const row = childMention.original_data;
-		if (!row) {
-			console.log('Mention missing original_data:', childMention.mention_id);
-			continue;
-		}
+		if (!row) continue;
 
 		const motherName = getRowValue(row, 'mother');
 		const fatherName = getRowValue(row, 'father');
 
-		// Skip if this mention itself IS the mother or father (already processed)
 		if (childMention.full_name === motherName || childMention.full_name === fatherName) {
 			continue;
 		}
@@ -706,7 +687,7 @@ async function processVitalRecordPostHoc(mentions) {
 				const fullName = p.name.replace(/[.,]/g, '').trim();
 				const { first, middle, last } = parseGeneralName(fullName, true);
 
-				const parentMention = {
+				parentsToCreate.push({
 					source: "ALB_VR_1715",
 					source_year: childMention.source_year,
 					county: selectedSource.county || '',
@@ -719,20 +700,37 @@ async function processVitalRecordPostHoc(mentions) {
 					gender: p.gender,
 					norm_first_name: normalizeFirstName(first),
 					nysiis_last_name: simpleNysiis(last)
-				};
-
-				try {
-					await fetch(`${POSTGREST_URL}/mentions`, {
-						method: 'POST',
-						headers: API_HEADERS,
-						body: JSON.stringify(parentMention)
-					});
-				} catch (err) {
-					log(`Failed to add parent ${fullName}: ${err.message}`, true);
-				}
+				});
 			}
 		}
 	}
+
+	// Batch write parents in parallel
+	log(`Writing ${parentsToCreate.length} parent mentions...`);
+	const BATCH_SIZE = 100;
+	const batches = [];
+	for (let i = 0; i < parentsToCreate.length; i += BATCH_SIZE) {
+		batches.push(parentsToCreate.slice(i, i + BATCH_SIZE));
+	}
+
+	let parentsWritten = 0;
+	const pStartTime = Date.now();
+	const CONCURRENCY = 10;
+
+	for (let i = 0; i < batches.length; i += CONCURRENCY) {
+		const chunk = batches.slice(i, i + CONCURRENCY);
+		await Promise.all(chunk.map(async (batch) => {
+			try {
+				await insertBatch(batch);
+				parentsWritten += batch.length;
+			} catch (err) {
+				log(`Failed to write parent mention batch: ${err.message}`, true);
+			}
+			updateProgress(parentsWritten, parentsToCreate.length, pStartTime, 'parent mentions written');
+		}));
+	}
+
+	log(`Finished creating ${parentsWritten} parent mentions.`);
 }
 
 async function processPostHocAssertions() {
@@ -788,9 +786,19 @@ async function processPostHocAssertions() {
 		households[m.household_id].push(m);
 	});
 
-	let assertionCount = 0;
+	let matchedCount = 0;
+	const totalHouseholds = Object.keys(households).length;
+	const startTime = Date.now();
+	const assertionsToCreate = [];
+
+	log(`Matching relationships for ${totalHouseholds} households...`);
 
 	for (const [hhId, members] of Object.entries(households)) {
+		matchedCount++;
+		if (matchedCount % 10 === 0 || matchedCount === totalHouseholds) {
+			updateProgress(matchedCount, totalHouseholds, startTime, 'households matched');
+		}
+
 		const head = members.find(m => m.head === true);
 		if (!head) continue;
 
@@ -870,7 +878,7 @@ async function processPostHocAssertions() {
 			}
 
 			if (predicate) {
-				const assertion = {
+				assertionsToCreate.push({
 					subject_id: head.mention_id,
 					predicate: predicate,
 					county: selectedSource.county || '',
@@ -878,19 +886,37 @@ async function processPostHocAssertions() {
 					who: who,
 					start_year: parseInt(selectedSource.year),
 					confidence: confidence
-				};
-
-				try {
-					await saveAssertion(assertion);
-					assertionCount++;
-				} catch (err) {
-					log(`Failed to create assertion: ${err.message}`, true);
-				}
+				});
 			}
 		}
 	}
 
-	log(`Created ${assertionCount} household assertions.`);
+	// Write assertions in parallel batches
+	log(`Writing ${assertionsToCreate.length} Census assertions...`);
+	const BATCH_SIZE = 100;
+	const assertionBatches = [];
+	for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
+		assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
+	}
+
+	let assertionsWritten = 0;
+	const aStartTime = Date.now();
+	const CONCURRENCY = 10;
+
+	for (let i = 0; i < assertionBatches.length; i += CONCURRENCY) {
+		const chunk = assertionBatches.slice(i, i + CONCURRENCY);
+		await Promise.all(chunk.map(async (batch) => {
+			try {
+				await saveAssertionsBatch(batch);
+				assertionsWritten += batch.length;
+			} catch (err) {
+				log(`Failed to write Census assertion batch: ${err.message}`, true);
+			}
+			updateProgress(assertionsWritten, assertionsToCreate.length, aStartTime, 'assertions written');
+		}));
+	}
+
+	log(`Created ${assertionsWritten} Census household assertions.`);
 }
 
 async function saveAssertionsBatch(assertions) {
@@ -917,57 +943,88 @@ async function processSlaveScheduleAssertions(mentions) {
 		enslaverMap.set(e.full_name, e.mention_id);
 	});
 
-	let assertionCount = 0;
-	let processed = 0;
-	const total = enslaved.length;
-	const startTime = Date.now();
-	let assertionsBatch = [];
+	// Group enslaved mention IDs by their enslaver_id for bulk patching
+	const enslaverGroups = {}; // enslaver_id -> [mention_id]
+	const assertionsToCreate = [];
 
 	for (const m of enslaved) {
-		processed++;
-		if (processed % 10 === 0 || processed === total) {
-			updateProgress(processed, total, startTime, 'enslaved linked');
-		}
-
 		const enslaverName = getRowValue(m.original_data, 'enslaver_full_name');
 		const enslaverId = enslaverMap.get(enslaverName);
 
 		if (enslaverId) {
-			try {
-				// Update enslaved mention with enslaver_id
-				await fetch(`${POSTGREST_URL}/mentions?mention_id=eq.${m.mention_id}`, {
-					method: 'PATCH',
-					headers: API_HEADERS,
-					body: JSON.stringify({ enslaver_id: enslaverId })
-				});
+			if (!enslaverGroups[enslaverId]) enslaverGroups[enslaverId] = [];
+			enslaverGroups[enslaverId].push(m.mention_id);
 
-				const assertion = {
-					subject_id: m.mention_id,
-					predicate: 'wasEnslavedBy',
-					county: selectedSource.county || '',
-					object_id: enslaverId,
-					who: 'slaveSchedule',
-					start_year: parseInt(selectedSource.year),
-					end_year: parseInt(selectedSource.year),
-					confidence: 0.8
-				};
-
-				assertionsBatch.push(assertion);
-				if (assertionsBatch.length >= 100) {
-					await saveAssertionsBatch(assertionsBatch);
-					assertionCount += assertionsBatch.length;
-					assertionsBatch = [];
-				}
-			} catch (err) {
-				log(`Failed to link enslaver for row ${getRowValue(m.original_data, 'line')}: ${err.message}`, true);
-			}
+			assertionsToCreate.push({
+				subject_id: m.mention_id,
+				predicate: 'wasEnslavedBy',
+				county: selectedSource.county || '',
+				object_id: enslaverId,
+				who: 'slaveSchedule',
+				start_year: parseInt(selectedSource.year),
+				end_year: parseInt(selectedSource.year),
+				confidence: 0.8
+			});
 		}
 	}
-	if (assertionsBatch.length > 0) {
-		await saveAssertionsBatch(assertionsBatch);
-		assertionCount += assertionsBatch.length;
+
+	const enslaverIds = Object.keys(enslaverGroups);
+	log(`Linking ${enslaverIds.length} enslaver groups...`);
+
+	let processed = 0;
+	const total = enslaverIds.length;
+	const startTime = Date.now();
+
+	const CONCURRENCY = 10;
+	
+	// Phase 1: Bulk PATCH enslaver_id
+	for (let i = 0; i < enslaverIds.length; i += CONCURRENCY) {
+		const chunk = enslaverIds.slice(i, i + CONCURRENCY);
+		await Promise.all(chunk.map(async (eId) => {
+			const mIds = enslaverGroups[eId];
+			try {
+				for (let j = 0; j < mIds.length; j += 100) {
+					const idChunk = mIds.slice(j, j + 100);
+					await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${idChunk.join(',')})`, {
+						method: 'PATCH',
+						headers: API_HEADERS,
+						body: JSON.stringify({ enslaver_id: eId })
+					});
+				}
+			} catch (err) {
+				log(`Failed to link enslaver ${eId}: ${err.message}`, true);
+			}
+			processed++;
+			updateProgress(processed, total, startTime, 'enslavers linked');
+		}));
 	}
-	log(`Created ${assertionCount} wasEnslavedBy assertions and linked enslaver IDs.`);
+
+	// Phase 2: Bulk POST assertions in parallel
+	log(`Writing ${assertionsToCreate.length} assertions...`);
+	const BATCH_SIZE = 100;
+	const assertionBatches = [];
+	for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
+		assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
+	}
+
+	let assertionsWritten = 0;
+	const aTotal = assertionBatches.length;
+	const aStartTime = Date.now();
+
+	for (let i = 0; i < assertionBatches.length; i += CONCURRENCY) {
+		const chunk = assertionBatches.slice(i, i + CONCURRENCY);
+		await Promise.all(chunk.map(async (batch) => {
+			try {
+				await saveAssertionsBatch(batch);
+				assertionsWritten += batch.length;
+			} catch (err) {
+				log(`Failed to write assertion batch: ${err.message}`, true);
+			}
+			updateProgress(assertionsWritten, assertionsToCreate.length, aStartTime, 'assertions written');
+		}));
+	}
+
+	log(`Created ${assertionsWritten} wasEnslavedBy assertions and linked enslaver IDs.`);
 }
 
 async function processVitalRecordAssertions(mentions) {
@@ -999,23 +1056,15 @@ async function processVitalRecordAssertions(mentions) {
 		}
 	});
 
-	let count = 0;
-	let processed = 0;
-	const total = Object.keys(groups).length;
-	const startTime = Date.now();
-	let assertionsBatch = [];
+	const assertionBatches = [];
+	const currentBatch = [];
 
 	for (const line in groups) {
-		processed++;
-		if (processed % 10 === 0 || processed === total) {
-			updateProgress(processed, total, startTime, 'parent-child relationships matched');
-		}
-
 		const { child, mother, father } = groups[line];
 		if (!child) continue;
 
 		if (mother) {
-			assertionsBatch.push({
+			currentBatch.push({
 				subject_id: mother.mention_id,
 				predicate: 'IsMotherOf',
 				county: selectedSource.county || '',
@@ -1027,7 +1076,7 @@ async function processVitalRecordAssertions(mentions) {
 			});
 		}
 		if (father) {
-			assertionsBatch.push({
+			currentBatch.push({
 				subject_id: father.mention_id,
 				predicate: 'IsFatherOf',
 				county: selectedSource.county || '',
@@ -1039,15 +1088,28 @@ async function processVitalRecordAssertions(mentions) {
 			});
 		}
 
-		if (assertionsBatch.length >= 100) {
-			await saveAssertionsBatch(assertionsBatch);
-			count += assertionsBatch.length;
-			assertionsBatch = [];
+		if (currentBatch.length >= 100) {
+			assertionBatches.push([...currentBatch]);
+			currentBatch.length = 0;
 		}
 	}
-	if (assertionsBatch.length > 0) {
-		await saveAssertionsBatch(assertionsBatch);
-		count += assertionsBatch.length;
+	if (currentBatch.length > 0) assertionBatches.push(currentBatch);
+
+	let count = 0;
+	const startTime = Date.now();
+	const CONCURRENCY = 10;
+
+	for (let i = 0; i < assertionBatches.length; i += CONCURRENCY) {
+		const chunk = assertionBatches.slice(i, i + CONCURRENCY);
+		await Promise.all(chunk.map(async (batch) => {
+			try {
+				await saveAssertionsBatch(batch);
+				count += batch.length;
+			} catch (err) {
+				log(`Failed to write Vital Record assertion batch: ${err.message}`, true);
+			}
+			updateProgress(count, assertionBatches.length * 100, startTime, 'assertions written'); // Rough estimate for total
+		}));
 	}
 	log(`Created ${count} parent-child assertions for Vital Records.`);
 }
