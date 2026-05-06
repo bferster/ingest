@@ -21,6 +21,7 @@ const previewHeaders = document.getElementById('preview-headers');
 const previewBody = document.getElementById('preview-body');
 const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
+const expandBtn = document.getElementById('expand-btn');
 
 function log(message, isError = false) {
 	const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
@@ -587,47 +588,52 @@ async function processEnslaverMentions(mentions) {
 	const total = enslavers.size;
 	const startTime = Date.now();
 
-	for (const [fullName, row] of enslavers) {
-		processed++;
-		updateProgress(processed, total, startTime, 'enslavers added');
-		// Check if enslaver already exists for this source to avoid duplicates
+	const enslaverNames = Array.from(enslavers.keys());
+	const dbSource = await getDatabaseSource(selectedSource);
+	
+	// 1. Bulk check for existing enslavers
+	log(`Checking database for existing records for ${enslaverNames.length} enslavers...`);
+	const existingEnslavers = new Set();
+	for (let i = 0; i < enslaverNames.length; i += 100) {
+		const chunk = enslaverNames.slice(i, i + 100);
 		try {
-			const checkRes = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(await getDatabaseSource(selectedSource))}&full_name=eq.${encodeURIComponent(fullName)}&is_enslaver=is.true`, { headers: API_HEADERS });
-			if (checkRes.ok) {
-				const existing = await checkRes.json();
-				if (existing.length > 0) {
-					// log(`Enslaver ${fullName} already exists, skipping.`);
-					continue;
-				}
+			const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})&is_enslaver=is.true`, { headers: API_HEADERS });
+			if (res.ok) {
+				const data = await res.json();
+				data.forEach(m => existingEnslavers.add(m.full_name));
 			}
-
-			// Parsing name logic
-			const { first, middle, last } = parseGeneralName(fullName);
-
-			const enslaverMention = {
-				source: await getDatabaseSource(selectedSource),
-				source_year: parseInt(selectedSource.year),
-				county: selectedSource.county || '',
-				original_data: row,
-				confidence: 0.83,
-				full_name: fullName,
-				first_name: first,
-				middle_name: middle,
-				last_name: last,
-				legal_status: '',
-				is_enslaver: true,
-				norm_first_name: normalizeFirstName(first),
-				nysiis_last_name: simpleNysiis(last)
-			};
-
-			await fetch(`${POSTGREST_URL}/mentions`, {
-				method: 'POST',
-				headers: API_HEADERS,
-				body: JSON.stringify(enslaverMention)
-			});
 		} catch (err) {
-			log(`Failed to process enslaver ${fullName}: ${err.message}`, true);
+			log(`Bulk check failed for a chunk: ${err.message}`, true);
 		}
+	}
+
+	const enslaversToCreate = [];
+	for (const [fullName, row] of enslavers) {
+		if (existingEnslavers.has(fullName)) continue;
+
+		const { first, middle, last } = parseGeneralName(fullName);
+		enslaversToCreate.push({
+			source: dbSource,
+			source_year: parseInt(selectedSource.year),
+			county: selectedSource.county || '',
+			original_data: row,
+			confidence: 0.83,
+			full_name: fullName,
+			first_name: first,
+			middle_name: middle,
+			last_name: last,
+			legal_status: '',
+			is_enslaver: true,
+			norm_first_name: normalizeFirstName(first),
+			nysiis_last_name: simpleNysiis(last)
+		});
+	}
+
+	if (enslaversToCreate.length > 0) {
+		log(`Inserting ${enslaversToCreate.length} new enslaver mentions...`);
+		await insertBatch(enslaversToCreate);
+	} else {
+		log('All enslavers already exist in database.');
 	}
 }
 
@@ -1293,6 +1299,416 @@ function normalizeFirstName(raw) {
 
 	// Return the uppercase string
 	return mappedParts.join(' ').trim();
+}
+
+// Expand Assertions Implementation
+expandBtn.addEventListener('click', async () => {
+	if (!confirm('Are you sure you want to expand assertions? This will compute the deductive closure of the assertions table.')) {
+		return;
+	}
+
+	expandBtn.disabled = true;
+	log('Starting assertion expansion...');
+	const startTime = Date.now();
+
+	try {
+		// 1. Fetch all assertions
+		log('Fetching assertions from database...');
+		let allAssertions = [];
+		let offset = 0;
+		const limit = 1000;
+		while (true) {
+			const res = await fetch(`${POSTGREST_URL}/assertions?limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+			if (!res.ok) throw new Error('Failed to fetch assertions');
+			const data = await res.json();
+			if (data.length === 0) break;
+			allAssertions = allAssertions.concat(data);
+			if (data.length < limit) break;
+			offset += limit;
+		}
+		log(`Loaded ${allAssertions.length} assertions.`);
+
+		// Helpers for checking existing
+		const getAssertionKey = (a) => `${a.subject_id}|${a.predicate}|${a.object_id || a.object_string}`;
+		const existingKeys = new Set(allAssertions.map(getAssertionKey));
+
+		const passAMappings = {
+			isSonOf: 'isChildOf', isDaughterOf: 'isChildOf',
+			isGrandFatherOf: 'isGrandParentOf', isGrandMotherOf: 'isGrandParentOf',
+			isUncleOf: 'isPiblingOf', isAuntOf: 'isPiblingOf',
+			isNephewOf: 'isNiblingOf', isNieceOf: 'isNiblingOf',
+			isStepMotherOf: 'isStepParentOf', isStepFatherOf: 'isStepParentOf',
+			isStepSonOf: 'isStepChildOf', isStepDaughterOf: 'isStepChildOf',
+			isStepBrotherOf: 'isStepSiblingOf', isStepSisterOf: 'isStepSiblingOf'
+			// isSonInLawOf: 'isChildInLawOf', isDaughterInLawOf: 'isChildInLawOf',
+			// isGrandFatherInLawOf: 'isGrandParentInLawOf', isGrandMotherInLawOf: 'isGrandParentInLawOf',
+			// isUncleInLawOf: 'isPiblingInLawOf', isAuntInLawOf: 'isPiblingInLawOf',
+			// isNephewInLawOf: 'isNiblingInLawOf', isNieceInLawOf: 'isNiblingInLawOf'
+		};
+
+		const passBMappings = {
+			isMotherOf: 'isParentOf', isFatherOf: 'isParentOf',
+			isHusbandOf: 'isSpouseOf', isWifeOf: 'isSpouseOf',
+			isGrandSonOf: 'isGrandChildOf', isGrandDaughterOf: 'isGrandChildOf',
+			isBrotherOf: 'isSiblingOf', isSisterOf: 'isSiblingOf'
+			// isFatherInLawOf: 'isParentInLawOf', isMotherInLawOf: 'isParentInLawOf',
+			// isBrotherInLawOf: 'isSiblingInLawOf', isSisterInLawOf: 'isSiblingInLawOf',
+			// isGrandSonInLawOf: 'isGrandChildInLawOf', isGrandDaughterInLawOf: 'isGrandChildInLawOf'
+		};
+
+		const passCMappings = {
+			isParentOf: 'isChildOf',
+			isChildOf: 'isParentOf',
+			isSpouseOf: 'isSpouseOf',
+			isSiblingOf: 'isSiblingOf',
+			isGrandParentOf: 'isGrandChildOf',
+			isGrandChildOf: 'isGrandParentOf',
+			isPiblingOf: 'isNiblingOf',
+			isNiblingOf: 'isPiblingOf',
+			isCousinOf: 'isCousinOf',
+			isStepParentOf: 'isStepChildOf',
+			isStepChildOf: 'isStepParentOf',
+			isStepSiblingOf: 'isStepSiblingOf',
+			// isParentInLawOf: 'isChildInLawOf',
+			// isChildInLawOf: 'isParentInLawOf',
+			// isSiblingInLawOf: 'isSiblingInLawOf',
+			// isGrandParentInLawOf: 'isGrandChildInLawOf',
+			// isGrandChildInLawOf: 'isGrandParentInLawOf',
+			// isPiblingInLawOf: 'isNiblingInLawOf',
+			// isNiblingInLawOf: 'isPiblingInLawOf',
+			// isCousinInLawOf: 'isCousinInLawOf',
+			isFatherOf: 'isChildOf', isMotherOf: 'isChildOf',
+			isHusbandOf: 'isWifeOf', isWifeOf: 'isHusbandOf',
+			isBrotherOf: 'isSiblingOf', isSisterOf: 'isSiblingOf',
+			isGrandSonOf: 'isGrandParentOf', isGrandDaughterOf: 'isGrandParentOf',
+			isFatherInLawOf: 'isChildInLawOf', isMotherInLawOf: 'isChildInLawOf',
+			isBrotherInLawOf: 'isSiblingInLawOf', isSisterInLawOf: 'isSiblingInLawOf'
+		};
+
+		// --- Pass A: Changed (In-place) ---
+		log('Running Pass A (Predicate Replacement)...');
+		const predicatesToReplace = Object.keys(passAMappings);
+		let updatedCount = 0;
+		for (const oldPred of predicatesToReplace) {
+			const newPred = passAMappings[oldPred];
+			try {
+				const res = await fetch(`${POSTGREST_URL}/assertions?predicate=eq.${oldPred}`, {
+					method: 'PATCH',
+					headers: API_HEADERS,
+					body: JSON.stringify({ predicate: newPred })
+				});
+				if (res.ok) {
+					// Log progress based on how many actually existed locally
+					const count = allAssertions.filter(a => a.predicate === oldPred).length;
+					updatedCount += count;
+					log(`Converted all ${oldPred} to ${newPred} in database.`);
+				}
+			} catch (err) {
+				log(`Failed bulk patch for ${oldPred}: ${err.message}`, true);
+			}
+		}
+		// Update local copy in one pass
+		allAssertions.forEach(a => {
+			if (passAMappings[a.predicate]) {
+				a.predicate = passAMappings[a.predicate];
+			}
+		});
+		log(`Pass A complete: Updated predicates for ${updatedCount} records.`);
+
+		// --- Pass B: Identical (Additive) ---
+		log('Running Pass B (Supertype Additions)...');
+		const newFromB = [];
+		allAssertions.forEach(a => {
+			const superPred = passBMappings[a.predicate];
+			if (superPred) {
+				const derived = { ...a, predicate: superPred, who: 'derived' };
+				delete derived.assertion_id;
+				delete derived.created;
+				if (!existingKeys.has(getAssertionKey(derived))) {
+					newFromB.push(derived);
+					existingKeys.add(getAssertionKey(derived));
+				}
+			}
+		});
+		if (newFromB.length > 0) {
+			await insertAssertionBatch(newFromB);
+			allAssertions = allAssertions.concat(newFromB);
+		}
+		log(`Pass B complete: ${newFromB.length} assertions added.`);
+
+		// --- Pass C: Inverse (Additive) ---
+		const runPassC = async (currentAssertions) => {
+			const newInverses = [];
+			currentAssertions.forEach(a => {
+				if (!a.object_id) return;
+				const invPred = passCMappings[a.predicate];
+				if (invPred) {
+					const derived = {
+						subject_id: a.object_id,
+						predicate: invPred,
+						object_id: a.subject_id,
+						county: a.county,
+						start_year: a.start_year,
+						end_year: a.end_year,
+						confidence: a.confidence,
+						who: 'derived'
+					};
+					if (!existingKeys.has(getAssertionKey(derived))) {
+						newInverses.push(derived);
+						existingKeys.add(getAssertionKey(derived));
+					}
+				}
+			});
+			if (newInverses.length > 0) {
+				await insertAssertionBatch(newInverses);
+				allAssertions = allAssertions.concat(newInverses);
+			}
+			return newInverses.length;
+		};
+
+		log('Running Pass C (Inverse Additions)...');
+		const countC1 = await runPassC(allAssertions);
+		log(`Pass C complete: ${countC1} assertions added.`);
+
+		// --- Pass D: Transitive (Additive) ---
+		log('Running Pass D (Transitive Rules)...');
+		const newFromD = [];
+		
+		// Index for fast lookups
+		const bySubject = {};
+		allAssertions.forEach(a => {
+			if (!bySubject[a.subject_id]) bySubject[a.subject_id] = [];
+			bySubject[a.subject_id].push(a);
+		});
+
+		const addDerived = (derived) => {
+			if (!existingKeys.has(getAssertionKey(derived))) {
+				newFromD.push(derived);
+				existingKeys.add(getAssertionKey(derived));
+				// Also update lookup for subsequent D rules
+				if (!bySubject[derived.subject_id]) bySubject[derived.subject_id] = [];
+				bySubject[derived.subject_id].push(derived);
+			}
+		};
+
+		// Utility to find relationships
+		const getRel = (subjId, pred) => (bySubject[subjId] || []).filter(a => a.predicate === pred);
+
+		// Apply rules in order
+		const subjects = Object.keys(bySubject);
+		for (let i = 0; i < subjects.length; i++) {
+			const X = subjects[i];
+			const Xrels = bySubject[X];
+
+			// sibling_from_parent: X isChildOf P ∧ Y isChildOf P ∧ X ≠ Y → X isSiblingOf Y
+			Xrels.filter(a => a.predicate === 'isChildOf' && a.object_id).forEach(aXP => {
+				const P = aXP.object_id;
+				// Find others who have P as parent (Y isChildOf P is same as P isParentOf Y)
+				// Since we have inverses, we can just look for P isParentOf Y
+				(bySubject[P] || []).filter(aPY => aPY.predicate === 'isParentOf' && aPY.object_id && aPY.object_id !== X).forEach(aPY => {
+					addDerived({
+						subject_id: X, predicate: 'isSiblingOf', object_id: aPY.object_id,
+						county: aXP.county, start_year: aXP.start_year, end_year: aXP.end_year, confidence: Math.min(aXP.confidence, aPY.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// grandparent_from_parent: X isParentOf Y ∧ Y isParentOf Z → X isGrandParentOf Z
+			Xrels.filter(a => a.predicate === 'isParentOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYZ => aYZ.predicate === 'isParentOf' && aYZ.object_id).forEach(aYZ => {
+					addDerived({
+						subject_id: X, predicate: 'isGrandParentOf', object_id: aYZ.object_id,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYZ.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// pibling_from_sibling: X isSiblingOf Y ∧ Y isParentOf Z → X isPiblingOf Z
+			Xrels.filter(a => a.predicate === 'isSiblingOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYZ => aYZ.predicate === 'isParentOf' && aYZ.object_id).forEach(aYZ => {
+					addDerived({
+						subject_id: X, predicate: 'isPiblingOf', object_id: aYZ.object_id,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYZ.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// cousin_from_pibling: X isPiblingOf Y ∧ X isParentOf Z → Z isCousinOf Y
+			Xrels.filter(a => a.predicate === 'isPiblingOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				Xrels.filter(aXZ => aXZ.predicate === 'isParentOf' && aXZ.object_id).forEach(aXZ => {
+					addDerived({
+						subject_id: aXZ.object_id, predicate: 'isCousinOf', object_id: Y,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aXZ.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// stepsibling_from_stepparent: X isChildOf P ∧ Y isStepChildOf P ∧ X ≠ Y → X isStepSiblingOf Y
+			Xrels.filter(a => a.predicate === 'isChildOf' && a.object_id).forEach(aXP => {
+				const P = aXP.object_id;
+				(bySubject[P] || []).filter(aPY => aPY.predicate === 'isStepParentOf' && aPY.object_id && aPY.object_id !== X).forEach(aPY => {
+					addDerived({
+						subject_id: X, predicate: 'isStepSiblingOf', object_id: aPY.object_id,
+						county: aXP.county, start_year: aXP.start_year, end_year: aXP.end_year, confidence: Math.min(aXP.confidence, aPY.confidence), who: 'derived'
+					});
+				});
+			});
+
+			/* 
+			// In-law relationships
+			// child_in_law_from_spouse: X isSpouseOf Y ∧ Y isChildOf P → X isChildInLawOf P
+			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYP => aYP.predicate === 'isChildOf' && aYP.object_id).forEach(aYP => {
+					addDerived({
+						subject_id: X, predicate: 'isChildInLawOf', object_id: aYP.object_id,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYP.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// parent_in_law_from_spouse: X isSpouseOf Y ∧ Y isParentOf C → X isParentInLawOf C
+			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYC => aYC.predicate === 'isParentOf' && aYC.object_id).forEach(aYC => {
+					addDerived({
+						subject_id: X, predicate: 'isParentInLawOf', object_id: aYC.object_id,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYC.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// sibling_in_law_from_spouse_sibling: X isSpouseOf Y ∧ Y isSiblingOf S → X isSiblingInLawOf S
+			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYS => aYS.predicate === 'isSiblingOf' && aYS.object_id).forEach(aYS => {
+					addDerived({
+						subject_id: X, predicate: 'isSiblingInLawOf', object_id: aYS.object_id,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYS.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// sibling_in_law_from_sibling_spouse: X isSiblingOf Y ∧ Y isSpouseOf S → S isSiblingInLawOf X
+			Xrels.filter(a => a.predicate === 'isSiblingOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYS => aYS.predicate === 'isSpouseOf' && aYS.object_id).forEach(aYS => {
+					addDerived({
+						subject_id: aYS.object_id, predicate: 'isSiblingInLawOf', object_id: X,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYS.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// grandparent_in_law_from_spouse: X isSpouseOf Y ∧ Y isGrandChildOf G → X isGrandChildInLawOf G
+			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYG => aYG.predicate === 'isGrandChildOf' && aYG.object_id).forEach(aYG => {
+					addDerived({
+						subject_id: X, predicate: 'isGrandChildInLawOf', object_id: aYG.object_id,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYG.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// grandchild_in_law_from_grandchild_spouse: X isGrandParentOf C ∧ C isSpouseOf S → S isGrandChildInLawOf X
+			Xrels.filter(a => a.predicate === 'isGrandParentOf' && a.object_id).forEach(aXC => {
+				const C = aXC.object_id;
+				(bySubject[C] || []).filter(aCS => aCS.predicate === 'isSpouseOf' && aCS.object_id).forEach(aCS => {
+					addDerived({
+						subject_id: aCS.object_id, predicate: 'isGrandChildInLawOf', object_id: X,
+						county: aXC.county, start_year: aXC.start_year, end_year: aXC.end_year, confidence: Math.min(aXC.confidence, aCS.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// pibling_in_law_from_spouse: X isSpouseOf Y ∧ P isPiblingOf Y → P isPiblingInLawOf X
+			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				// P isPiblingOf Y means Y isNiblingOf P
+				(bySubject[Y] || []).filter(aYP => aYP.predicate === 'isNiblingOf' && aYP.object_id).forEach(aYP => {
+					addDerived({
+						subject_id: aYP.object_id, predicate: 'isPiblingInLawOf', object_id: X,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYP.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// pibling_in_law_from_pibling_spouse: P isPiblingOf Y ∧ P isSpouseOf S → S isPiblingInLawOf Y
+			Xrels.filter(a => a.predicate === 'isPiblingOf' && a.object_id).forEach(aPY => {
+				const Y = aPY.object_id;
+				Xrels.filter(aPS => aPS.predicate === 'isSpouseOf' && aPS.object_id).forEach(aPS => {
+					addDerived({
+						subject_id: aPS.object_id, predicate: 'isPiblingInLawOf', object_id: Y,
+						county: aPY.county, start_year: aPY.start_year, end_year: aPY.end_year, confidence: Math.min(aPY.confidence, aPS.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// cousin_in_law_from_spouse: X isSpouseOf Y ∧ Y isCousinOf C → X isCousinInLawOf C
+			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYC => aYC.predicate === 'isCousinOf' && aYC.object_id).forEach(aYC => {
+					addDerived({
+						subject_id: X, predicate: 'isCousinInLawOf', object_id: aYC.object_id,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYC.confidence), who: 'derived'
+					});
+				});
+			});
+
+			// cousin_in_law_from_cousin_spouse: X isCousinOf Y ∧ Y isSpouseOf S → S isCousinInLawOf X
+			Xrels.filter(a => a.predicate === 'isCousinOf' && a.object_id).forEach(aXY => {
+				const Y = aXY.object_id;
+				(bySubject[Y] || []).filter(aYS => aYS.predicate === 'isSpouseOf' && aYS.object_id).forEach(aYS => {
+					addDerived({
+						subject_id: aYS.object_id, predicate: 'isCousinInLawOf', object_id: X,
+						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYS.confidence), who: 'derived'
+					});
+				});
+			});
+			*/
+			
+			if (i % 100 === 0) updateProgress(i, subjects.length, startTime, 'subjects processed for Pass D');
+		}
+
+		if (newFromD.length > 0) {
+			await insertAssertionBatch(newFromD);
+			allAssertions = allAssertions.concat(newFromD);
+		}
+		log(`Pass D complete: ${newFromD.length} assertions added.`);
+
+		// --- Repeat Pass C ---
+		log('Repeating Pass C (Final Inverse Additions)...');
+		const countC2 = await runPassC(allAssertions);
+		log(`Final Pass C complete: ${countC2} assertions added.`);
+
+		log(`Assertion expansion complete. Total new assertions: ${newFromB.length + countC1 + newFromD.length + countC2}`);
+
+	} catch (err) {
+		log(`Expansion failed: ${err.message}`, true);
+	} finally {
+		expandBtn.disabled = false;
+	}
+});
+
+async function insertAssertionBatch(batch) {
+	if (batch.length === 0) return;
+	const BATCH_SIZE = 100;
+	for (let i = 0; i < batch.length; i += BATCH_SIZE) {
+		const chunk = batch.slice(i, i + BATCH_SIZE);
+		const res = await fetch(`${POSTGREST_URL}/assertions`, {
+			method: 'POST',
+			headers: { ...API_HEADERS, 'Prefer': 'return=minimal' },
+			body: JSON.stringify(chunk)
+		});
+		if (!res.ok) {
+			const err = await res.text();
+			log(`Failed to insert assertion batch: ${err}`, true);
+		}
+	}
 }
 
 // Initialize

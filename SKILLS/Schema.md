@@ -57,6 +57,7 @@ The following SQL commands define the schema for the various tables needed:
 		head BOOLEAN,
 		household_id VARCHAR(50),	
 		family_id VARCHAR(50),
+		narrative VARCHAR(255),
 		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
 
