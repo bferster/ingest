@@ -84,17 +84,24 @@ The process for ingesting a source is:
 	For each mention that has a source_type of “census” in a MENTIONS table {
 		Show a progress indicator while processing, and log any failed row inserts to the console without halting the entire batch.
 		Show time estimator while ingesting source rows to the right of the progress indicator.
-]		Create a new unique family identifier, such as when it encounters a new family value for the same source_year. Format as FC{source_year}-{family}, i.e. FC1880-123433. 
+]		Create a new unique family identifier, such as when it encounters a new family value for the same source_year. Format as FC{source_year}-{family}, i.e. FC1880-1235. 
 		For each mention with the same source_year with that dwelling value, that mention’s household_id is set.
 		For each mention with the same source_year with that family value, that mention’s family_id is set.
 		Save changed mention to PostgreSQL as an update..
 		}
+
+**CHECK FOR DUPLICATE MENTIONS**
+
+	After all the mentions have been added and before assertions are generated, remove any duplicate mentions where the full_name and original_data fields match.
+
 
 **ASSERTIONS**
 
 	Assertions are created in two passes. Only the first pass will be implemented in this phase.  It then writes all assertions that do not depend on scoring: isHousemateOf, inFamilyOf, isNeighborOf, wasEnslavedBy, isLocatedAt, and any family relationship assertions from Bureau and vital records. 
 			Show a progress indicator while processing, and log any failed row inserts to the console without halting the entire batch.
 			Show time estimator while ingesting source rows to the right of the progress indicator.
+
+	WBefore inserting any derived assertion, check whether an identical row (same subject, predicate, object_id) already exists; skip the insert if so.
 
 	The format for representing these relationships is: 
 
@@ -120,8 +127,12 @@ The process for ingesting a source is:
 	isMemberOf: Subject A is the person, Object B is the property_id of a specific.
 	}
 
-	If a wasEnslavedBy assertion is found, it gets the latitude/longitude from the enslaver_id’s listing in the LOCATIONS table for that time span
+	If a wasEnslavedBy assertion is found, it gets the latitude/longitude from the enslaver_id’s listing in the LOCATIONS table for that time span.
 	If  an 1870 census mention person has a isNeighborOf assertion and has a race of “W”, the system queries the LOCATIONS table for that year using the neighbor's person_id or name. This will be implemented later.
 	Plausibility checking:
 	When the system creates an isChildOf, isParentOf, or isSpouseOf assertion, it already has access to both mentions' birth_year fields.
 	The plausibility check is a validation gate on those assertions, before writing the row, compute the implied parental age at the child's birth, and if it falls outside plausible bounds, do two things: write the assertion anyway (the evidence is real, even if the interpretation is wrong), but simultaneously write a "Relationship" hypothesis to the hypotheses table flagging the implausibility. This will be implemented later.
+
+**CHECK FOR DUPLICATE ASSERTIONS**
+
+	After all theare generated, remove any duplicate assertions that have the same subject, object_id, and predicate.

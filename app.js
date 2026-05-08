@@ -21,7 +21,31 @@ const previewHeaders = document.getElementById('preview-headers');
 const previewBody = document.getElementById('preview-body');
 const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
-const expandBtn = document.getElementById('expand-btn');
+const actionSelect = document.getElementById('action-select');
+
+// Helper to fetch all existing assertion keys for a specific 'who' tag
+async function fetchExistingAssertionKeys(who) {
+	const keys = new Set();
+	let offset = 0;
+	const limit = 2000;
+	while (true) {
+		const res = await fetch(`${POSTGREST_URL}/assertions?who=eq.${who}&select=subject_id,predicate,object_id,object_string&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
+		if (!res.ok) {
+			log(`Warning: Failed to fetch existing assertions for ${who} at offset ${offset}`, true);
+			break;
+		}
+		const data = await res.json();
+		if (data.length === 0) break;
+		data.forEach(a => {
+			const obj = a.object_id || a.object_string || 'null';
+			keys.add(`${a.subject_id}|${a.predicate}|${obj}`);
+		});
+		if (data.length < limit) break;
+		offset += limit;
+	}
+	return keys;
+}
+
 
 function log(message, isError = false) {
 	const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
@@ -195,22 +219,8 @@ processBtn.addEventListener('click', async () => {
 	log(`Starting ingestion of ${totalRows} rows${useLimit ? ' (Limited to 50)' : ''}...`);
 	const startTime = Date.now();
 
-	// Fast deduplication: Fetch existing mentions for this source once at the start
+	// Fast deduplication check removed as per instructions
 	const dbSource = await getDatabaseSource(selectedSource);
-	log('Checking for existing records to avoid duplicates...');
-	let existingHashes = new Set();
-	try {
-		const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&select=original_data`, { headers: API_HEADERS });
-		if (res.ok) {
-			const existing = await res.json();
-			existing.forEach(m => {
-				existingHashes.add(JSON.stringify(m.original_data));
-			});
-			log(`Found ${existingHashes.size} existing records in database.`);
-		}
-	} catch (err) {
-		log('Could not fetch existing records for deduplication, proceeding without fast check.', true);
-	}
 
 	const BATCH_SIZE = 100;
 	let batch = [];
@@ -224,13 +234,7 @@ processBtn.addEventListener('click', async () => {
 		const row = currentCsvData[i];
 		const originalDataStr = JSON.stringify(row);
 
-		if (existingHashes.has(originalDataStr)) {
-			processedRows++;
-			if (processedRows % 10 === 0 || processedRows === totalRows) {
-				updateProgress(processedRows, totalRows, startTime);
-			}
-			continue;
-		}
+		// Duplicate check removed as per instructions
 
 		try {
 			const mention = await prepareMention(row);
@@ -296,18 +300,18 @@ stopBtn.addEventListener('click', () => {
 function updateProgress(processed, total, startTime, stage = 'rows processed') {
 	const percentage = Math.round((processed / total) * 100);
 	progressFill.style.width = `${percentage}%`;
-	
+
 	let estText = '';
 	if (processed >= 5 && startTime) {
 		const elapsed = (Date.now() - startTime) / 1000; // in seconds
 		const timePerRow = elapsed / processed;
 		const remaining = (total - processed) * timePerRow;
-		
+
 		const mins = Math.floor(remaining / 60);
 		const secs = Math.floor(remaining % 60);
 		estText = ` (Est. remaining: ${mins}m ${secs}s)`;
 	}
-	
+
 	progressText.textContent = `${processed} / ${total} ${stage}${estText}`;
 }
 
@@ -482,6 +486,9 @@ async function processPostHocMentions() {
 
 	const dbSource = await getDatabaseSource(selectedSource);
 
+	// Deduplicate mentions before further processing
+	await removeDuplicateMentions(dbSource);
+
 	let allMentions = [];
 	let offset = 0;
 	const limit = 1000;
@@ -523,11 +530,13 @@ async function processPostHocMentions() {
 
 	mentions.forEach(m => {
 		if (!m.source_year || !m.original_data) return;
-		const hId = m.original_data.dwelling ? `HC${m.source_year}-${m.original_data.dwelling}` : null;
-		const fId = m.original_data.family ? `FC${m.source_year}-${m.original_data.family}` : null;
-		
+		const sourceTag = m.source ? m.source.replace(/[^a-z0-9]/gi, '_').substring(0, 50) : 'unknown';
+		const countyTag = m.county ? m.county.replace(/[^a-z0-9]/gi, '_') : 'unknown';
+		const hId = m.original_data.dwelling ? `HC_${sourceTag}_${m.original_data.dwelling}` : null;
+		const fId = m.original_data.family ? `FC_${sourceTag}_${m.original_data.family}` : null;
+
 		if (!hId && !fId) return;
-		
+
 		const key = `${hId || ''}|${fId || ''}`;
 		if (!updateGroups[key]) updateGroups[key] = [];
 		updateGroups[key].push(m.mention_id);
@@ -590,7 +599,7 @@ async function processEnslaverMentions(mentions) {
 
 	const enslaverNames = Array.from(enslavers.keys());
 	const dbSource = await getDatabaseSource(selectedSource);
-	
+
 	// 1. Bulk check for existing enslavers
 	log(`Checking database for existing records for ${enslaverNames.length} enslavers...`);
 	const existingEnslavers = new Set();
@@ -764,165 +773,311 @@ async function processPostHocAssertions() {
 
 	if (selectedSource.format.includes('SlaveSchedule')) {
 		await processSlaveScheduleAssertions(mentions);
-		return;
-	}
-
-	if (selectedSource.format.includes('VitalRecord')) {
+	} else if (selectedSource.format.includes('VitalRecord')) {
 		await processVitalRecordAssertions(mentions);
-		return;
-	}
+	} else if (selectedSource.format.includes('Census')) {
+		// Sort by line number from original_data to maintain enumeration order
+		mentions.sort((a, b) => {
+			const lineA = parseInt(a.original_data?.line || 0);
+			const lineB = parseInt(b.original_data?.line || 0);
+			return lineA - lineB;
+		});
 
-	if (!selectedSource.format.includes('Census')) {
-		log('Skipping Census post-hoc assertions for non-census format.');
-		return;
-	}
+		// Group by family_id (preferred for relationships) or household_id
+		const groups = {};
+		mentions.forEach(m => {
+			const groupId = m.family_id || m.household_id;
+			if (!groupId) return;
+			if (!groups[groupId]) groups[groupId] = [];
+			groups[groupId].push(m);
+		});
 
-	// Sort by line number from original_data to maintain enumeration order
-	mentions.sort((a, b) => {
-		const lineA = parseInt(a.original_data?.line || 0);
-		const lineB = parseInt(b.original_data?.line || 0);
-		return lineA - lineB;
-	});
+		let matchedCount = 0;
+		const totalGroups = Object.keys(groups).length;
+		const startTime = Date.now();
+		const assertionsToCreate = [];
 
-	// Group by household_id
-	const households = {};
-	mentions.forEach(m => {
-		if (!m.household_id) return;
-		if (!households[m.household_id]) households[m.household_id] = [];
-		households[m.household_id].push(m);
-	});
+		// Deduplication: Fetch existing assertions for this source type
+		const whoTag = selectedSource.year == 1880 ? "1880Census" : "1870Census";
+		log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
+		const existingAssertionKeys = await fetchExistingAssertionKeys(whoTag);
+		log(`Found ${existingAssertionKeys.size} existing assertions for ${whoTag}.`);
 
-	let matchedCount = 0;
-	const totalHouseholds = Object.keys(households).length;
-	const startTime = Date.now();
-	const assertionsToCreate = [];
+		log(`Matching relationships for ${totalGroups} family/household groups...`);
 
-	log(`Matching relationships for ${totalHouseholds} households...`);
+		for (const [groupId, members] of Object.entries(groups)) {
+			matchedCount++;
+			if (matchedCount % 10 === 0 || matchedCount === totalGroups) {
+				updateProgress(matchedCount, totalGroups, startTime, 'groups matched');
+			}
 
-	for (const [hhId, members] of Object.entries(households)) {
-		matchedCount++;
-		if (matchedCount % 10 === 0 || matchedCount === totalHouseholds) {
-			updateProgress(matchedCount, totalHouseholds, startTime, 'households matched');
-		}
+			const head = members.find(m => m.head === true);
+			if (!head) continue;
 
-		const head = members.find(m => m.head === true);
-		if (!head) continue;
+			for (let i = 0; i < members.length; i++) {
+				const self = members[i];
+				const next = members[i + 1];
 
-		for (let i = 0; i < members.length; i++) {
-			const self = members[i];
-			const next = members[i + 1];
+				// Skip head for relation identification as per instruction 74
+				if (self.mention_id === head.mention_id) continue;
 
-			// Skip head for relation identification as per instruction 74
-			if (self.mention_id === head.mention_id) continue;
+				let predicate = null;
+				let confidence = 0.5;
+				let who = "1870Census";
 
-			let predicate = null;
-			let confidence = 0.5;
-			let who = "1870Census";
+				const is1880 = selectedSource.year == 1880;
 
-			const is1880 = selectedSource.year == 1880;
+				if (is1880) {
+					who = "1880Census";
+					confidence = 0.9;
+					// 1880 Census Logic (Relation-based)
+					const relation = self.original_data?.relation;
+					if (relation && relation !== "Self") {
+						const relationMap = {
+							"Wife": "isSpouseOf",
+							"Son": "isChildOf",
+							"Daughter": "isChildOf",
+							"Brother": "isSiblingOf",
+							"Sister": "isSiblingOf",
+							"Father": "isFatherOf",
+							"Mother": "isMotherOf",
+							"Grandfather": "isGrandfatherOf",
+							"Grandmother": "isGrandmotherOf",
+							"Uncle": "isUncleOf",
+							"Aunt": "isAuntOf",
+							"Cousin": "isCousinOf",
+							"Nephew": "isNephewOf",
+							"Niece": "isNieceOf",
+							"Son-in-law": "isSonInLawOf",
+							"Daughter-in-law": "isDaughterInLawOf",
+							"Brother-in-law": "isBrotherInLawOf",
+							"Sister-in-law": "isSisterInLawOf",
+							"Father-in-law": "isFatherInLawOf",
+							"Mother-in-law": "isMotherInLawOf"
+						};
+						predicate = relationMap[relation] || null;
+					}
+				} else {
+					// 1870 Census Logic (Inferred-based)
+					who = "1870Census";
+					confidence = 0.5;
 
-			if (is1880) {
-				who = "1880Census";
-				confidence = 0.9;
-				// 1880 Census Logic (Relation-based)
-				const relation = self.original_data?.relation;
-				if (relation && relation !== "Self") {
-					const relationMap = {
-						"Wife": "isSpouseOf",
-						"Son": "isChildOf",
-						"Daughter": "isChildOf",
-						"Brother": "isSiblingOf",
-						"Sister": "isSiblingOf",
-						"Father": "isFatherOf",
-						"Mother": "isMotherOf",
-						"Grandfather": "isGrandfatherOf",
-						"Grandmother": "isGrandmotherOf",
-						"Uncle": "isUncleOf",
-						"Aunt": "isAuntOf",
-						"Cousin": "isCousinOf",
-						"Nephew": "isNephewOf",
-						"Niece": "isNieceOf",
-						"Son-in-law": "isSonInLawOf",
-						"Daughter-in-law": "isDaughterInLawOf",
-						"Brother-in-law": "isBrotherInLawOf",
-						"Sister-in-law": "isSisterInLawOf",
-						"Father-in-law": "isFatherInLawOf",
-						"Mother-in-law": "isMotherInLawOf"
-					};
-					predicate = relationMap[relation] || null;
-				}
-			} else {
-				// 1870 Census Logic (Inferred-based)
-				who = "1870Census";
-				confidence = 0.5;
+					// Rule 75: isSpouseOf
+					if (next && self.gender === 'M' && next.gender === 'F') {
+						const selfYear = self.birth_year || 0;
+						const nextYear = next.birth_year || 0;
+						const yearDiff = selfYear - nextYear;
+						if (yearDiff >= -5 && yearDiff <= 15) {
+							predicate = 'isSpouseOf';
+						}
+					}
 
-				// Rule 75: isSpouseOf
-				if (next && self.gender === 'M' && next.gender === 'F') {
-					const selfYear = self.birth_year || 0;
-					const nextYear = next.birth_year || 0;
-					const yearDiff = selfYear - nextYear;
-					if (yearDiff >= -5 && yearDiff <= 15) {
-						predicate = 'isSpouseOf';
+					// Rule 76: isMotherOf
+					if (!predicate && next && self.gender === 'F') {
+						const nextAge = parseInt(selectedSource.year) - (next.birth_year || 0);
+						if (nextAge < 14) {
+							predicate = 'isMotherOf';
+						}
+					}
+
+					// Rule 77: isSiblingOf
+					if (!predicate && next) {
+						const ageDiff = Math.abs((self.birth_year || 0) - (next.birth_year || 0));
+						if (ageDiff <= 20) {
+							predicate = 'isSiblingOf';
+						}
 					}
 				}
 
-				// Rule 76: isMotherOf
-				if (!predicate && next && self.gender === 'F') {
-					const nextAge = parseInt(selectedSource.year) - (next.birth_year || 0);
-					if (nextAge < 14) {
-						predicate = 'isMotherOf';
+				if (predicate) {
+					let subjId, objId;
+					if (is1880) {
+						// In 1880, 'relation' is relative to head. e.g. "Son" means self isChildOf head.
+						subjId = self.mention_id;
+						objId = head.mention_id;
+					} else {
+						// In 1870 inferred rules, they apply between self and next
+						subjId = self.mention_id;
+						objId = next ? next.mention_id : null;
 					}
-				}
 
-				// Rule 77: isSiblingOf
-				if (!predicate && next) {
-					const ageDiff = Math.abs((self.birth_year || 0) - (next.birth_year || 0));
-					if (ageDiff <= 20) {
-						predicate = 'isSiblingOf';
+					if (subjId && objId) {
+						const aKey = `${subjId}|${predicate}|${objId}`;
+						if (!existingAssertionKeys.has(aKey)) {
+							assertionsToCreate.push({
+								subject_id: subjId,
+								predicate: predicate,
+								county: selectedSource.county || '',
+								object_id: objId,
+								who: who,
+								start_year: parseInt(selectedSource.year),
+								confidence: confidence
+							});
+							existingAssertionKeys.add(aKey);
+						}
 					}
 				}
 			}
+		}
 
-			if (predicate) {
-				assertionsToCreate.push({
-					subject_id: head.mention_id,
-					predicate: predicate,
-					county: selectedSource.county || '',
-					object_id: self.mention_id,
-					who: who,
-					start_year: parseInt(selectedSource.year),
-					confidence: confidence
-				});
+		// Write assertions in parallel batches
+		log(`Writing ${assertionsToCreate.length} Census assertions...`);
+		const BATCH_SIZE = 100;
+		const assertionBatches = [];
+		for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
+			assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
+		}
+
+		let assertionsWritten = 0;
+		const aStartTime = Date.now();
+		const CONCURRENCY = 10;
+
+		for (let i = 0; i < assertionBatches.length; i += CONCURRENCY) {
+			const chunk = assertionBatches.slice(i, i + CONCURRENCY);
+			await Promise.all(chunk.map(async (batch) => {
+				try {
+					await saveAssertionsBatch(batch);
+					assertionsWritten += batch.length;
+				} catch (err) {
+					log(`Failed to write Census assertion batch: ${err.message}`, true);
+				}
+				updateProgress(assertionsWritten, assertionsToCreate.length, aStartTime, 'assertions written');
+			}));
+		}
+
+		log(`Created ${assertionsWritten} Census household assertions.`);
+	} else {
+		log('Skipping post-hoc assertions for non-supported format.');
+	}
+	await removeDuplicateAssertions();
+}
+
+async function removeDuplicateAssertions() {
+	log('Cleaning up duplicate assertions...');
+	let allAssertions = [];
+	let offset = 0;
+	const limit = 2000;
+	while (true) {
+		const res = await fetch(`${POSTGREST_URL}/assertions?select=assertion_id,subject_id,predicate,object_id,object_string,who,confidence,created&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
+		if (!res.ok) throw new Error('Failed to fetch assertions for cleanup');
+		const data = await res.json();
+		if (data.length === 0) break;
+		allAssertions = allAssertions.concat(data);
+		if (allAssertions.length % 5000 === 0) {
+			log(`Fetched ${allAssertions.length} assertions...`);
+		}
+		if (data.length < limit) break;
+		offset += limit;
+	}
+
+	log(`Total assertions to check: ${allAssertions.length}`);
+
+	const groups = {};
+	allAssertions.forEach(a => {
+		// Key must account for both object_id and object_string to be unique
+		const objValue = a.object_id || a.object_string || 'null';
+		const key = `${a.subject_id}|${a.predicate}|${objValue}`;
+		if (!groups[key]) groups[key] = [];
+		groups[key].push(a);
+	});
+
+	const idsToDelete = [];
+	for (const key in groups) {
+		const group = groups[key];
+		if (group.length > 1) {
+			// Keep the best one:
+			// 1. Non-expanded preferred
+			// 2. Higher confidence
+			// 3. Earliest created
+			group.sort((a, b) => {
+				if (a.who !== 'expanded' && b.who === 'expanded') return -1;
+				if (a.who === 'expanded' && b.who !== 'expanded') return 1;
+				if ((b.confidence || 0) !== (a.confidence || 0)) return (b.confidence || 0) - (a.confidence || 0);
+				return (a.created || '').localeCompare(b.created || '');
+			});
+			// Collect all but the first one
+			for (let i = 1; i < group.length; i++) {
+				if (group[i].assertion_id) {
+					idsToDelete.push(group[i].assertion_id);
+				}
 			}
 		}
 	}
 
-	// Write assertions in parallel batches
-	log(`Writing ${assertionsToCreate.length} Census assertions...`);
-	const BATCH_SIZE = 100;
-	const assertionBatches = [];
-	for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
-		assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
-	}
-
-	let assertionsWritten = 0;
-	const aStartTime = Date.now();
-	const CONCURRENCY = 10;
-
-	for (let i = 0; i < assertionBatches.length; i += CONCURRENCY) {
-		const chunk = assertionBatches.slice(i, i + CONCURRENCY);
-		await Promise.all(chunk.map(async (batch) => {
+	if (idsToDelete.length > 0) {
+		log(`Found ${idsToDelete.length} duplicates. Deleting in batches...`);
+		for (let i = 0; i < idsToDelete.length; i += 100) {
+			const chunk = idsToDelete.slice(i, i + 100);
 			try {
-				await saveAssertionsBatch(batch);
-				assertionsWritten += batch.length;
-			} catch (err) {
-				log(`Failed to write Census assertion batch: ${err.message}`, true);
+				const delRes = await fetch(`${POSTGREST_URL}/assertions?assertion_id=in.(${chunk.join(',')})`, {
+					method: 'DELETE',
+					headers: API_HEADERS
+				});
+				if (!delRes.ok) {
+					log(`Warning: Failed to delete batch starting at ${i}`, true);
+				}
+			} catch (e) {
+				log(`Error deleting batch: ${e.message}`, true);
 			}
-			updateProgress(assertionsWritten, assertionsToCreate.length, aStartTime, 'assertions written');
-		}));
+		}
+		log(`Successfully processed deletion of ${idsToDelete.length} assertions.`);
+	} else {
+		log('No duplicate assertions found.');
+	}
+}
+
+async function removeDuplicateMentions(dbSource) {
+	log('Checking for duplicate mentions to remove...');
+	let allMentions = [];
+	let offset = 0;
+	const limit = 2000;
+	while (true) {
+		const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&select=mention_id,full_name,original_data&limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
+		if (!res.ok) throw new Error('Failed to fetch mentions for cleanup');
+		const data = await res.json();
+		if (data.length === 0) break;
+		allMentions = allMentions.concat(data);
+		if (data.length < limit) break;
+		offset += limit;
 	}
 
-	log(`Created ${assertionsWritten} Census household assertions.`);
+	const groups = {};
+	allMentions.forEach(m => {
+		// Key by full_name and stringified original_data
+		const key = `${m.full_name || ''}|${JSON.stringify(m.original_data || {})}`;
+		if (!groups[key]) groups[key] = [];
+		groups[key].push(m.mention_id);
+	});
+
+	const idsToDelete = [];
+	for (const key in groups) {
+		const ids = groups[key];
+		if (ids.length > 1) {
+			// Keep the first one, delete the rest
+			idsToDelete.push(...ids.slice(1));
+		}
+	}
+
+	if (idsToDelete.length > 0) {
+		log(`Found ${idsToDelete.length} duplicate mentions. Deleting...`);
+		for (let i = 0; i < idsToDelete.length; i += 100) {
+			const chunk = idsToDelete.slice(i, i + 100);
+			try {
+				const delRes = await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${chunk.join(',')})`, {
+					method: 'DELETE',
+					headers: API_HEADERS
+				});
+				if (!delRes.ok) {
+					log(`Warning: Failed to delete mention batch starting at ${i}`, true);
+				}
+			} catch (e) {
+				log(`Error deleting mention batch: ${e.message}`, true);
+			}
+		}
+		log(`Successfully deleted ${idsToDelete.length} duplicate mentions.`);
+	} else {
+		log('No duplicate mentions found.');
+	}
 }
 
 async function saveAssertionsBatch(assertions) {
@@ -949,6 +1104,11 @@ async function processSlaveScheduleAssertions(mentions) {
 		enslaverMap.set(e.full_name, e.mention_id);
 	});
 
+	// Deduplication: Fetch existing assertions for slaveSchedule
+	log('Checking for existing slaveSchedule assertions to avoid duplicates...');
+	const existingAssertionKeys = await fetchExistingAssertionKeys('slaveSchedule');
+	log(`Found ${existingAssertionKeys.size} existing assertions for slaveSchedule.`);
+
 	// Group enslaved mention IDs by their enslaver_id for bulk patching
 	const enslaverGroups = {}; // enslaver_id -> [mention_id]
 	const assertionsToCreate = [];
@@ -961,16 +1121,21 @@ async function processSlaveScheduleAssertions(mentions) {
 			if (!enslaverGroups[enslaverId]) enslaverGroups[enslaverId] = [];
 			enslaverGroups[enslaverId].push(m.mention_id);
 
-			assertionsToCreate.push({
-				subject_id: m.mention_id,
-				predicate: 'wasEnslavedBy',
-				county: selectedSource.county || '',
-				object_id: enslaverId,
-				who: 'slaveSchedule',
-				start_year: parseInt(selectedSource.year),
-				end_year: parseInt(selectedSource.year),
-				confidence: 0.8
-			});
+			const objValue = enslaverId || 'null';
+			const aKey = `${m.mention_id}|wasEnslavedBy|${objValue}`;
+			if (!existingAssertionKeys.has(aKey)) {
+				assertionsToCreate.push({
+					subject_id: m.mention_id,
+					predicate: 'wasEnslavedBy',
+					county: selectedSource.county || '',
+					object_id: enslaverId,
+					who: 'slaveSchedule',
+					start_year: parseInt(selectedSource.year),
+					end_year: parseInt(selectedSource.year),
+					confidence: 0.8
+				});
+				existingAssertionKeys.add(aKey);
+			}
 		}
 	}
 
@@ -982,7 +1147,7 @@ async function processSlaveScheduleAssertions(mentions) {
 	const startTime = Date.now();
 
 	const CONCURRENCY = 10;
-	
+
 	// Phase 1: Bulk PATCH enslaver_id
 	for (let i = 0; i < enslaverIds.length; i += CONCURRENCY) {
 		const chunk = enslaverIds.slice(i, i + CONCURRENCY);
@@ -1036,6 +1201,11 @@ async function processSlaveScheduleAssertions(mentions) {
 async function processVitalRecordAssertions(mentions) {
 	log(`Creating Parent-Child assertions for ${mentions.length} Vital Records mentions...`);
 
+	// Deduplication: Fetch existing assertions for vitalRecords
+	log('Checking for existing vitalRecords assertions to avoid duplicates...');
+	const existingAssertionKeys = await fetchExistingAssertionKeys('vitalRecords');
+	log(`Found ${existingAssertionKeys.size} existing assertions for vitalRecords.`);
+
 	// Group by original_data line number
 	const groups = {};
 
@@ -1070,28 +1240,36 @@ async function processVitalRecordAssertions(mentions) {
 		if (!child) continue;
 
 		if (mother) {
-			currentBatch.push({
-				subject_id: mother.mention_id,
-				predicate: 'IsMotherOf',
-				county: selectedSource.county || '',
-				object_id: child.mention_id,
-				who: 'vitalRecords',
-				start_year: child.source_year,
-				end_year: null,
-				confidence: 0.80
-			});
+			const mKey = `${mother.mention_id}|IsMotherOf|${child.mention_id}`;
+			if (!existingAssertionKeys.has(mKey)) {
+				currentBatch.push({
+					subject_id: mother.mention_id,
+					predicate: 'IsMotherOf',
+					county: selectedSource.county || '',
+					object_id: child.mention_id,
+					who: 'vitalRecords',
+					start_year: child.source_year,
+					end_year: null,
+					confidence: 0.80
+				});
+				existingAssertionKeys.add(mKey);
+			}
 		}
 		if (father) {
-			currentBatch.push({
-				subject_id: father.mention_id,
-				predicate: 'IsFatherOf',
-				county: selectedSource.county || '',
-				object_id: child.mention_id,
-				who: 'vitalRecords',
-				start_year: child.source_year,
-				end_year: null,
-				confidence: 0.80
-			});
+			const fKey = `${father.mention_id}|IsFatherOf|${child.mention_id}`;
+			if (!existingAssertionKeys.has(fKey)) {
+				currentBatch.push({
+					subject_id: father.mention_id,
+					predicate: 'IsFatherOf',
+					county: selectedSource.county || '',
+					object_id: child.mention_id,
+					who: 'vitalRecords',
+					start_year: child.source_year,
+					end_year: null,
+					confidence: 0.80
+				});
+				existingAssertionKeys.add(fKey);
+			}
 		}
 
 		if (currentBatch.length >= 100) {
@@ -1301,415 +1479,27 @@ function normalizeFirstName(raw) {
 	return mappedParts.join(' ').trim();
 }
 
-// Expand Assertions Implementation
-expandBtn.addEventListener('click', async () => {
-	if (!confirm('Are you sure you want to expand assertions? This will compute the deductive closure of the assertions table.')) {
-		return;
+// Post-processing Actions
+actionSelect.addEventListener('change', async (e) => {
+	const action = e.target.value;
+	if (!action) return;
+
+	if (action === 'expand_assertions') {
+		if (!confirm('Are you sure you want to expand assertions? This will compute the deductive closure of the assertions table.')) {
+			actionSelect.value = '';
+			return;
+		}
+		await expandAssertions();
+	} else if (action === 'create_narratives') {
+		if (!confirm('Are you sure you want to create narratives?')) {
+			actionSelect.value = '';
+			return;
+		}
+		await ContenderNarratives();
 	}
 
-	expandBtn.disabled = true;
-	log('Starting assertion expansion...');
-	const startTime = Date.now();
-
-	try {
-		// 1. Fetch all assertions
-		log('Fetching assertions from database...');
-		let allAssertions = [];
-		let offset = 0;
-		const limit = 1000;
-		while (true) {
-			const res = await fetch(`${POSTGREST_URL}/assertions?limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
-			if (!res.ok) throw new Error('Failed to fetch assertions');
-			const data = await res.json();
-			if (data.length === 0) break;
-			allAssertions = allAssertions.concat(data);
-			if (data.length < limit) break;
-			offset += limit;
-		}
-		log(`Loaded ${allAssertions.length} assertions.`);
-
-		// Helpers for checking existing
-		const getAssertionKey = (a) => `${a.subject_id}|${a.predicate}|${a.object_id || a.object_string}`;
-		const existingKeys = new Set(allAssertions.map(getAssertionKey));
-
-		const passAMappings = {
-			isSonOf: 'isChildOf', isDaughterOf: 'isChildOf',
-			isGrandFatherOf: 'isGrandParentOf', isGrandMotherOf: 'isGrandParentOf',
-			isUncleOf: 'isPiblingOf', isAuntOf: 'isPiblingOf',
-			isNephewOf: 'isNiblingOf', isNieceOf: 'isNiblingOf',
-			isStepMotherOf: 'isStepParentOf', isStepFatherOf: 'isStepParentOf',
-			isStepSonOf: 'isStepChildOf', isStepDaughterOf: 'isStepChildOf',
-			isStepBrotherOf: 'isStepSiblingOf', isStepSisterOf: 'isStepSiblingOf'
-			// isSonInLawOf: 'isChildInLawOf', isDaughterInLawOf: 'isChildInLawOf',
-			// isGrandFatherInLawOf: 'isGrandParentInLawOf', isGrandMotherInLawOf: 'isGrandParentInLawOf',
-			// isUncleInLawOf: 'isPiblingInLawOf', isAuntInLawOf: 'isPiblingInLawOf',
-			// isNephewInLawOf: 'isNiblingInLawOf', isNieceInLawOf: 'isNiblingInLawOf'
-		};
-
-		const passBMappings = {
-			isMotherOf: 'isParentOf', isFatherOf: 'isParentOf',
-			isHusbandOf: 'isSpouseOf', isWifeOf: 'isSpouseOf',
-			isGrandSonOf: 'isGrandChildOf', isGrandDaughterOf: 'isGrandChildOf',
-			isBrotherOf: 'isSiblingOf', isSisterOf: 'isSiblingOf'
-			// isFatherInLawOf: 'isParentInLawOf', isMotherInLawOf: 'isParentInLawOf',
-			// isBrotherInLawOf: 'isSiblingInLawOf', isSisterInLawOf: 'isSiblingInLawOf',
-			// isGrandSonInLawOf: 'isGrandChildInLawOf', isGrandDaughterInLawOf: 'isGrandChildInLawOf'
-		};
-
-		const passCMappings = {
-			isParentOf: 'isChildOf',
-			isChildOf: 'isParentOf',
-			isSpouseOf: 'isSpouseOf',
-			isSiblingOf: 'isSiblingOf',
-			isGrandParentOf: 'isGrandChildOf',
-			isGrandChildOf: 'isGrandParentOf',
-			isPiblingOf: 'isNiblingOf',
-			isNiblingOf: 'isPiblingOf',
-			isCousinOf: 'isCousinOf',
-			isStepParentOf: 'isStepChildOf',
-			isStepChildOf: 'isStepParentOf',
-			isStepSiblingOf: 'isStepSiblingOf',
-			// isParentInLawOf: 'isChildInLawOf',
-			// isChildInLawOf: 'isParentInLawOf',
-			// isSiblingInLawOf: 'isSiblingInLawOf',
-			// isGrandParentInLawOf: 'isGrandChildInLawOf',
-			// isGrandChildInLawOf: 'isGrandParentInLawOf',
-			// isPiblingInLawOf: 'isNiblingInLawOf',
-			// isNiblingInLawOf: 'isPiblingInLawOf',
-			// isCousinInLawOf: 'isCousinInLawOf',
-			isFatherOf: 'isChildOf', isMotherOf: 'isChildOf',
-			isHusbandOf: 'isWifeOf', isWifeOf: 'isHusbandOf',
-			isBrotherOf: 'isSiblingOf', isSisterOf: 'isSiblingOf',
-			isGrandSonOf: 'isGrandParentOf', isGrandDaughterOf: 'isGrandParentOf',
-			isFatherInLawOf: 'isChildInLawOf', isMotherInLawOf: 'isChildInLawOf',
-			isBrotherInLawOf: 'isSiblingInLawOf', isSisterInLawOf: 'isSiblingInLawOf'
-		};
-
-		// --- Pass A: Changed (In-place) ---
-		log('Running Pass A (Predicate Replacement)...');
-		const predicatesToReplace = Object.keys(passAMappings);
-		let updatedCount = 0;
-		for (const oldPred of predicatesToReplace) {
-			const newPred = passAMappings[oldPred];
-			try {
-				const res = await fetch(`${POSTGREST_URL}/assertions?predicate=eq.${oldPred}`, {
-					method: 'PATCH',
-					headers: API_HEADERS,
-					body: JSON.stringify({ predicate: newPred })
-				});
-				if (res.ok) {
-					// Log progress based on how many actually existed locally
-					const count = allAssertions.filter(a => a.predicate === oldPred).length;
-					updatedCount += count;
-					log(`Converted all ${oldPred} to ${newPred} in database.`);
-				}
-			} catch (err) {
-				log(`Failed bulk patch for ${oldPred}: ${err.message}`, true);
-			}
-		}
-		// Update local copy in one pass
-		allAssertions.forEach(a => {
-			if (passAMappings[a.predicate]) {
-				a.predicate = passAMappings[a.predicate];
-			}
-		});
-		log(`Pass A complete: Updated predicates for ${updatedCount} records.`);
-
-		// --- Pass B: Identical (Additive) ---
-		log('Running Pass B (Supertype Additions)...');
-		const newFromB = [];
-		allAssertions.forEach(a => {
-			const superPred = passBMappings[a.predicate];
-			if (superPred) {
-				const derived = { ...a, predicate: superPred, who: 'derived' };
-				delete derived.assertion_id;
-				delete derived.created;
-				if (!existingKeys.has(getAssertionKey(derived))) {
-					newFromB.push(derived);
-					existingKeys.add(getAssertionKey(derived));
-				}
-			}
-		});
-		if (newFromB.length > 0) {
-			await insertAssertionBatch(newFromB);
-			allAssertions = allAssertions.concat(newFromB);
-		}
-		log(`Pass B complete: ${newFromB.length} assertions added.`);
-
-		// --- Pass C: Inverse (Additive) ---
-		const runPassC = async (currentAssertions) => {
-			const newInverses = [];
-			currentAssertions.forEach(a => {
-				if (!a.object_id) return;
-				const invPred = passCMappings[a.predicate];
-				if (invPred) {
-					const derived = {
-						subject_id: a.object_id,
-						predicate: invPred,
-						object_id: a.subject_id,
-						county: a.county,
-						start_year: a.start_year,
-						end_year: a.end_year,
-						confidence: a.confidence,
-						who: 'derived'
-					};
-					if (!existingKeys.has(getAssertionKey(derived))) {
-						newInverses.push(derived);
-						existingKeys.add(getAssertionKey(derived));
-					}
-				}
-			});
-			if (newInverses.length > 0) {
-				await insertAssertionBatch(newInverses);
-				allAssertions = allAssertions.concat(newInverses);
-			}
-			return newInverses.length;
-		};
-
-		log('Running Pass C (Inverse Additions)...');
-		const countC1 = await runPassC(allAssertions);
-		log(`Pass C complete: ${countC1} assertions added.`);
-
-		// --- Pass D: Transitive (Additive) ---
-		log('Running Pass D (Transitive Rules)...');
-		const newFromD = [];
-		
-		// Index for fast lookups
-		const bySubject = {};
-		allAssertions.forEach(a => {
-			if (!bySubject[a.subject_id]) bySubject[a.subject_id] = [];
-			bySubject[a.subject_id].push(a);
-		});
-
-		const addDerived = (derived) => {
-			if (!existingKeys.has(getAssertionKey(derived))) {
-				newFromD.push(derived);
-				existingKeys.add(getAssertionKey(derived));
-				// Also update lookup for subsequent D rules
-				if (!bySubject[derived.subject_id]) bySubject[derived.subject_id] = [];
-				bySubject[derived.subject_id].push(derived);
-			}
-		};
-
-		// Utility to find relationships
-		const getRel = (subjId, pred) => (bySubject[subjId] || []).filter(a => a.predicate === pred);
-
-		// Apply rules in order
-		const subjects = Object.keys(bySubject);
-		for (let i = 0; i < subjects.length; i++) {
-			const X = subjects[i];
-			const Xrels = bySubject[X];
-
-			// sibling_from_parent: X isChildOf P ∧ Y isChildOf P ∧ X ≠ Y → X isSiblingOf Y
-			Xrels.filter(a => a.predicate === 'isChildOf' && a.object_id).forEach(aXP => {
-				const P = aXP.object_id;
-				// Find others who have P as parent (Y isChildOf P is same as P isParentOf Y)
-				// Since we have inverses, we can just look for P isParentOf Y
-				(bySubject[P] || []).filter(aPY => aPY.predicate === 'isParentOf' && aPY.object_id && aPY.object_id !== X).forEach(aPY => {
-					addDerived({
-						subject_id: X, predicate: 'isSiblingOf', object_id: aPY.object_id,
-						county: aXP.county, start_year: aXP.start_year, end_year: aXP.end_year, confidence: Math.min(aXP.confidence, aPY.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// grandparent_from_parent: X isParentOf Y ∧ Y isParentOf Z → X isGrandParentOf Z
-			Xrels.filter(a => a.predicate === 'isParentOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYZ => aYZ.predicate === 'isParentOf' && aYZ.object_id).forEach(aYZ => {
-					addDerived({
-						subject_id: X, predicate: 'isGrandParentOf', object_id: aYZ.object_id,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYZ.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// pibling_from_sibling: X isSiblingOf Y ∧ Y isParentOf Z → X isPiblingOf Z
-			Xrels.filter(a => a.predicate === 'isSiblingOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYZ => aYZ.predicate === 'isParentOf' && aYZ.object_id).forEach(aYZ => {
-					addDerived({
-						subject_id: X, predicate: 'isPiblingOf', object_id: aYZ.object_id,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYZ.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// cousin_from_pibling: X isPiblingOf Y ∧ X isParentOf Z → Z isCousinOf Y
-			Xrels.filter(a => a.predicate === 'isPiblingOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				Xrels.filter(aXZ => aXZ.predicate === 'isParentOf' && aXZ.object_id).forEach(aXZ => {
-					addDerived({
-						subject_id: aXZ.object_id, predicate: 'isCousinOf', object_id: Y,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aXZ.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// stepsibling_from_stepparent: X isChildOf P ∧ Y isStepChildOf P ∧ X ≠ Y → X isStepSiblingOf Y
-			Xrels.filter(a => a.predicate === 'isChildOf' && a.object_id).forEach(aXP => {
-				const P = aXP.object_id;
-				(bySubject[P] || []).filter(aPY => aPY.predicate === 'isStepParentOf' && aPY.object_id && aPY.object_id !== X).forEach(aPY => {
-					addDerived({
-						subject_id: X, predicate: 'isStepSiblingOf', object_id: aPY.object_id,
-						county: aXP.county, start_year: aXP.start_year, end_year: aXP.end_year, confidence: Math.min(aXP.confidence, aPY.confidence), who: 'derived'
-					});
-				});
-			});
-
-			/* 
-			// In-law relationships
-			// child_in_law_from_spouse: X isSpouseOf Y ∧ Y isChildOf P → X isChildInLawOf P
-			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYP => aYP.predicate === 'isChildOf' && aYP.object_id).forEach(aYP => {
-					addDerived({
-						subject_id: X, predicate: 'isChildInLawOf', object_id: aYP.object_id,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYP.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// parent_in_law_from_spouse: X isSpouseOf Y ∧ Y isParentOf C → X isParentInLawOf C
-			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYC => aYC.predicate === 'isParentOf' && aYC.object_id).forEach(aYC => {
-					addDerived({
-						subject_id: X, predicate: 'isParentInLawOf', object_id: aYC.object_id,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYC.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// sibling_in_law_from_spouse_sibling: X isSpouseOf Y ∧ Y isSiblingOf S → X isSiblingInLawOf S
-			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYS => aYS.predicate === 'isSiblingOf' && aYS.object_id).forEach(aYS => {
-					addDerived({
-						subject_id: X, predicate: 'isSiblingInLawOf', object_id: aYS.object_id,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYS.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// sibling_in_law_from_sibling_spouse: X isSiblingOf Y ∧ Y isSpouseOf S → S isSiblingInLawOf X
-			Xrels.filter(a => a.predicate === 'isSiblingOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYS => aYS.predicate === 'isSpouseOf' && aYS.object_id).forEach(aYS => {
-					addDerived({
-						subject_id: aYS.object_id, predicate: 'isSiblingInLawOf', object_id: X,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYS.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// grandparent_in_law_from_spouse: X isSpouseOf Y ∧ Y isGrandChildOf G → X isGrandChildInLawOf G
-			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYG => aYG.predicate === 'isGrandChildOf' && aYG.object_id).forEach(aYG => {
-					addDerived({
-						subject_id: X, predicate: 'isGrandChildInLawOf', object_id: aYG.object_id,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYG.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// grandchild_in_law_from_grandchild_spouse: X isGrandParentOf C ∧ C isSpouseOf S → S isGrandChildInLawOf X
-			Xrels.filter(a => a.predicate === 'isGrandParentOf' && a.object_id).forEach(aXC => {
-				const C = aXC.object_id;
-				(bySubject[C] || []).filter(aCS => aCS.predicate === 'isSpouseOf' && aCS.object_id).forEach(aCS => {
-					addDerived({
-						subject_id: aCS.object_id, predicate: 'isGrandChildInLawOf', object_id: X,
-						county: aXC.county, start_year: aXC.start_year, end_year: aXC.end_year, confidence: Math.min(aXC.confidence, aCS.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// pibling_in_law_from_spouse: X isSpouseOf Y ∧ P isPiblingOf Y → P isPiblingInLawOf X
-			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				// P isPiblingOf Y means Y isNiblingOf P
-				(bySubject[Y] || []).filter(aYP => aYP.predicate === 'isNiblingOf' && aYP.object_id).forEach(aYP => {
-					addDerived({
-						subject_id: aYP.object_id, predicate: 'isPiblingInLawOf', object_id: X,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYP.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// pibling_in_law_from_pibling_spouse: P isPiblingOf Y ∧ P isSpouseOf S → S isPiblingInLawOf Y
-			Xrels.filter(a => a.predicate === 'isPiblingOf' && a.object_id).forEach(aPY => {
-				const Y = aPY.object_id;
-				Xrels.filter(aPS => aPS.predicate === 'isSpouseOf' && aPS.object_id).forEach(aPS => {
-					addDerived({
-						subject_id: aPS.object_id, predicate: 'isPiblingInLawOf', object_id: Y,
-						county: aPY.county, start_year: aPY.start_year, end_year: aPY.end_year, confidence: Math.min(aPY.confidence, aPS.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// cousin_in_law_from_spouse: X isSpouseOf Y ∧ Y isCousinOf C → X isCousinInLawOf C
-			Xrels.filter(a => a.predicate === 'isSpouseOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYC => aYC.predicate === 'isCousinOf' && aYC.object_id).forEach(aYC => {
-					addDerived({
-						subject_id: X, predicate: 'isCousinInLawOf', object_id: aYC.object_id,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYC.confidence), who: 'derived'
-					});
-				});
-			});
-
-			// cousin_in_law_from_cousin_spouse: X isCousinOf Y ∧ Y isSpouseOf S → S isCousinInLawOf X
-			Xrels.filter(a => a.predicate === 'isCousinOf' && a.object_id).forEach(aXY => {
-				const Y = aXY.object_id;
-				(bySubject[Y] || []).filter(aYS => aYS.predicate === 'isSpouseOf' && aYS.object_id).forEach(aYS => {
-					addDerived({
-						subject_id: aYS.object_id, predicate: 'isCousinInLawOf', object_id: X,
-						county: aXY.county, start_year: aXY.start_year, end_year: aXY.end_year, confidence: Math.min(aXY.confidence, aYS.confidence), who: 'derived'
-					});
-				});
-			});
-			*/
-			
-			if (i % 100 === 0) updateProgress(i, subjects.length, startTime, 'subjects processed for Pass D');
-		}
-
-		if (newFromD.length > 0) {
-			await insertAssertionBatch(newFromD);
-			allAssertions = allAssertions.concat(newFromD);
-		}
-		log(`Pass D complete: ${newFromD.length} assertions added.`);
-
-		// --- Repeat Pass C ---
-		log('Repeating Pass C (Final Inverse Additions)...');
-		const countC2 = await runPassC(allAssertions);
-		log(`Final Pass C complete: ${countC2} assertions added.`);
-
-		log(`Assertion expansion complete. Total new assertions: ${newFromB.length + countC1 + newFromD.length + countC2}`);
-
-	} catch (err) {
-		log(`Expansion failed: ${err.message}`, true);
-	} finally {
-		expandBtn.disabled = false;
-	}
+	actionSelect.value = '';
 });
-
-async function insertAssertionBatch(batch) {
-	if (batch.length === 0) return;
-	const BATCH_SIZE = 100;
-	for (let i = 0; i < batch.length; i += BATCH_SIZE) {
-		const chunk = batch.slice(i, i + BATCH_SIZE);
-		const res = await fetch(`${POSTGREST_URL}/assertions`, {
-			method: 'POST',
-			headers: { ...API_HEADERS, 'Prefer': 'return=minimal' },
-			body: JSON.stringify(chunk)
-		});
-		if (!res.ok) {
-			const err = await res.text();
-			log(`Failed to insert assertion batch: ${err}`, true);
-		}
-	}
-}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', loadSources);

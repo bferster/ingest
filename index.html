@@ -17,7 +17,11 @@
 			<select id="source-select">
 				<option value="">-- Loading sources... --</option>
 			</select>
-			<button id="expand-btn" style="background-color: #28a745; margin-left: 10px;">Expand assertions</button>
+			<select id="action-select" style="margin-left: 10px;">
+				<option value="">-- Post-processing Actions --</option>
+				<option value="expand_assertions">Expand assertions</option>
+				<option value="create_narratives">Create narratives</option>
+			</select>
 		</div>
 
 		<div id="preview-section" class="hidden">
@@ -56,6 +60,8 @@
 	</div>
 
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+	<script src="assertionExpansion.js"></script>
+	<script src="contenderNarratives.js"></script>
 	<script src="app.js?v=2"></script>
 </body>
 

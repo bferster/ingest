@@ -37,18 +37,18 @@
 	- Most of the fields in file match the same as the mentions' fields	
 	- The source field is set to "ALB_SS-1850" or "ALB_SS-1860".
 	- The source_year field is set to 1850 or 1860.
-	- The original_data field is set to the entire row as a JSONB object
+	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.82.	
 	- The legal_status field is set to "E"
-	- Apply the normalization as described in @Normalize.md
-	- Get the location_id as described in @GetLocation.md using the location field
+	- Apply the normalization as described in @Normalize.md.
+	- Get the location_id as described in @GetLocation.md using the location field.
 	- Add mention to mentions table.
 
 **Add enslaver mentions**
 
 	- This occurs after all mentions for the enslaved people have been added to the mentions table.
 	- Add a mention for each unique enslaver {
-		- If the enslaver_full_name has already been added while ingesting this source. don't add this assertion.
+		- If the enslaver_full_name has already been added while ingesting this source, don't add this assertion.
 		- The source field is set to "ALB_SS-1850" or "ALB_SS-1860"
 		- The source_year field is set to 1850 or 1860.
 		- The original_data field is set to the entire row as a JSONB object.
