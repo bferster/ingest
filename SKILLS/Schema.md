@@ -52,7 +52,6 @@ The following SQL commands define the schema for the various tables needed:
 		norm_race VARCHAR(1) CHECK (norm_race IN ('B','W','')),
 		norm_occupation VARCHAR(100),
 
-		enslaver_id UUID REFERENCES mentions(mention_id),
 		location_id UUID REFERENCES locations(location_id),
 		head BOOLEAN,
 		household_id VARCHAR(50),	

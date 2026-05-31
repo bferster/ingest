@@ -48,7 +48,7 @@
 
 	- This occurs after all mentions for the enslaved people have been added to the mentions table.
 	- Add a mention for each unique enslaver {
-		- If the enslaver_full_name has already been added while ingesting this source, don't add this assertion.
+		- If the enslaver_full_name has already been added while ingesting this source, don't add this mention.
 		- The source field is set to "ALB_SS-1850" or "ALB_SS-1860"
 		- The source_year field is set to 1850 or 1860.
 		- The original_data field is set to the entire row as a JSONB object.
@@ -74,7 +74,6 @@
 	- Make a look-up table of names from the enslaver_full_name field and the enslaver's mention_id
 	- For each enslaved mention {
 		- Use the enslaver_full_name field to find the enslaver's mention_id from the look-up table.
-		- Add  the that mention_id to the enslaved person's mention row.
 		- Create assertion row data {
 			subject: enslaved person's mention_id.
 			predicate: wasEnslavedBy.

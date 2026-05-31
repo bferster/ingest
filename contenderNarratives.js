@@ -168,7 +168,11 @@ async function ContenderNarratives() {
 			};
 
 			if (m.household_id) {
-				const householdMembers = allMentions.filter(other => other.household_id === m.household_id && other.mention_id !== m.mention_id);
+				const householdMembers = allMentions.filter(other => 
+					other.household_id && 
+					other.household_id === m.household_id && 
+					other.mention_id !== m.mention_id
+				);
 				for (const member of householdMembers) {
 					contender.housemates.push(getNormName(member));
 				}
