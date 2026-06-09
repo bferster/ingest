@@ -72,3 +72,4 @@
 **Final action: Remove duplicate assertions**
 
 	After all passes are complete, remove all duplicate assertions where the subject, object_id,  and predicate values are the same, and the who field is 'expanded'.
+
