@@ -159,17 +159,27 @@
 	- The source field is set to "ALB_CH_1851".
 	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.8 apply the normalization as described in @Normalize.md
-	- Get the location_id as described in @GetLocation.md using the location field.
+	- Get the location_id as described in @GetLocation.md using the location field.'
+	
+**Creating the mention_id**
+	- The county for this source is "ALB".
+	- The source type is "CH".
+	- The year is "1851".
+	- The mention_id is created as follows:
+		- Each source has a unique prefix: for example: ALB-CH-1851-1, where  "ALB" is the county, "CH" is the source type, "1851" is the year and "1" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CH-1851-1.1, ALB-CH-1851-1.2 for the second, etc.
 
 **Add enslaver mentions**
 
 	- This occurs after all mentions for the enslaved people have been added to the mentions table.
 	- Add a mention for each unique enslaver {
 		- The source field is set to "ALB_CH_1851"
+		- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CH-1851-1.1, ALB-CH-1851-1.2 for the second, etc.
 		- The source_year field is set to the value of the record_year field.
 		- The original_data field is set to the entire row as a JSONB object.
 		- Set the legal_status field is set to ""
-		- Set is_enslaver to TRUE
+		- Set is_enslaver to TRUE.
+		- Set race to "W".
 		- The confidence field is set to 0.85.
 		- Set the full_name from the enslaver_full_name 
 		- Set the middle_name from the enslaver_middle_name.

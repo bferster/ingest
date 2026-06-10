@@ -36,7 +36,15 @@
 	| 9    | Alger Shother       | Alger      |             | Shother   | 1866        | Franklin Macon, NC |
 	| 10   | Betty Pendleton     | Betty      |             | Pendleton | 1866        | Charlottesville |
 
-**Translation instructions**
+**Creating the mention_id**
+	- The county for this source is "ALB".
+	- The source type is "FL".
+	- The year is "1865".
+	- The mention_id is created as follows:
+		- Each source has a unique prefix: for example: ALB-FL-1865-1, where  "ALB" is the county, "FL" is the source type, "1865" is the year and "1" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-FL-1865-1.1, ALB-FL-1865-1.2 for the second, etc.
+
+**Translation instructions**	
 
 	- Most of the fields in file match the same as the mentions' fields	
 	- The source field is set to "ALB_FL-1865"

@@ -44,6 +44,16 @@
 	- Get the location_id as described in @GetLocation.md using the location field.
 	- Add mention to mentions table.
 
+**Creating the mention_id**
+
+	- The county for this source is "ALB".
+	- The source type is "SS".
+	- The year is "1850 or 1860".
+	- The mention_id is created as follows:
+		- Each source has a unique prefix: for example: ALB-SS-1850-1, where  "ALB" is the county, "SS" is the source type, "1850" is the year and "1" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-SS-1850-1.1, ALB-SS-1850-1.2 for the second, etc.
+
+
 **Add enslaver mentions**
 
 	- This occurs after all mentions for the enslaved people have been added to the mentions table.

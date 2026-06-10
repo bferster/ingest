@@ -1,4 +1,4 @@
-const POSTGREST_URL = 'http://localhost:3000';
+const POSTGREST_URL = '/pgrst';
 const JWT_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYXV0aGVudGljYXRlZF91c2VyIiwiZXhwIjoxODA5MDMwNTQ0fQ.Odb66wuCHtVpGTT-ANI2Pgp5Cn9xEGndtSecu5boHzg';
 const API_HEADERS = {
 	'Content-Type': 'application/json',
@@ -9,6 +9,58 @@ let currentCsvData = [];
 let selectedSource = null;
 let currentConfidence = 1.0;
 let stopIngestion = false;
+
+class MentionIdGenerator {
+	constructor() {
+		this.usedIds = {};
+	}
+	generate(county, type, year, line) {
+		let cleanLine = String(line || '').trim();
+		if (!cleanLine) {
+			cleanLine = 'unknown';
+		}
+		const baseId = `${county}-${type}-${year}-${cleanLine}`;
+		if (this.usedIds[baseId] === undefined) {
+			this.usedIds[baseId] = 0;
+			return baseId;
+		} else {
+			this.usedIds[baseId]++;
+			return `${baseId}.${this.usedIds[baseId]}`;
+		}
+	}
+}
+
+function getFormatParams(format, sourceYear) {
+	let type = '';
+	let year = sourceYear;
+	if (format.includes('Census')) {
+		type = 'CN';
+		year = format.includes('1880') ? '1880' : '1870';
+	} else if (format.includes('FindAGrave')) {
+		type = 'FG';
+		year = '1600';
+	} else if (format.includes('Church')) {
+		type = 'CH';
+		year = '1851';
+	} else if (format.includes('FreeBlackRegister')) {
+		type = 'FBR';
+		year = '1800';
+	} else if (format.includes('FreedmansList')) {
+		type = 'FL';
+		year = '1865';
+	} else if (format.includes('SlaveSchedule')) {
+		type = 'SS';
+		year = sourceYear;
+	} else if (format.includes('VitalRecord')) {
+		type = 'VR';
+		year = '1715';
+	}
+	return { type: type || 'GEN', year: year || sourceYear };
+}
+
+let idGenerator = new MentionIdGenerator();
+let householdMap = new Map();
+let familyMap = new Map();
 
 const sourceSelect = document.getElementById('source-select');
 const processBtn = document.getElementById('process-btn');
@@ -219,66 +271,107 @@ processBtn.addEventListener('click', async () => {
 	progressSection.classList.remove('hidden');
 	stopIngestion = false;
 
-	const useLimit = limitCheckbox.checked;
-	const totalRows = useLimit ? Math.min(50, currentCsvData.length) : currentCsvData.length;
-	let processedRows = 0;
-
-	log(`Starting ingestion of ${totalRows} rows${useLimit ? ' (Limited to 50)' : ''}...`);
-	const startTime = Date.now();
-
-	// Fast deduplication check removed as per instructions
-	const dbSource = await getDatabaseSource(selectedSource);
-
-	const BATCH_SIZE = 100;
-	let batch = [];
-
-	for (let i = 0; i < totalRows; i++) {
-		if (stopIngestion) {
-			log(`Ingestion stopped by user at row ${i}.`);
-			break;
-		}
-
-		const row = currentCsvData[i];
-		const originalDataStr = JSON.stringify(row);
-
-		// Duplicate check removed as per instructions
-
-		try {
-			const mention = await prepareMention(row);
-			batch.push(mention);
-
-			if (batch.length >= BATCH_SIZE || i === totalRows - 1) {
-				await insertBatch(batch);
-				processedRows += batch.length;
-				batch = [];
-				updateProgress(processedRows, totalRows, startTime);
-			}
-		} catch (err) {
-			log(`Error processing batch near row ${i + 1}: ${err.message}`, true);
-		}
-	}
-
-	// Final progress update if needed
-	updateProgress(processedRows, totalRows, startTime);
-	log(`Finished row ingestion.`);
-
-	// Post-hoc Mentions and Assertions
-	if (stopIngestion) {
-		log('Ingestion stopped by user. Finalizing processed rows...');
-	} else {
-		log('Ingestion complete. Starting post-hoc processing...');
-	}
+	// Reset ID generator for the current source run
+	idGenerator = new MentionIdGenerator();
 
 	try {
-		await processPostHocMentions();
-		await processPostHocAssertions();
-	} catch (err) {
-		log(`Failed post-hoc processing: ${err.message}`, true);
-	}
+		// Pre-calculate household and family IDs (Census formats carry-forward logic)
+		householdMap.clear();
+		familyMap.clear();
+		if (selectedSource.format.includes('Census')) {
+			let lastDwelling = null;
+			let lastFamily = null;
+			for (let i = 0; i < currentCsvData.length; i++) {
+				const row = currentCsvData[i];
+				let rawDwelling = getRowValue(row, 'dwelling');
+				let rawFamily = getRowValue(row, 'family');
 
-	log(`Ingestion batch complete.`);
-	processBtn.disabled = false;
-	stopBtn.disabled = true;
+				if (rawDwelling !== null && rawDwelling !== undefined && String(rawDwelling).trim() !== '') {
+					lastDwelling = String(rawDwelling).trim();
+					rawDwelling = lastDwelling;
+				} else {
+					rawDwelling = lastDwelling;
+				}
+
+				if (rawFamily !== null && rawFamily !== undefined && String(rawFamily).trim() !== '') {
+					lastFamily = String(rawFamily).trim();
+					rawFamily = lastFamily;
+				} else {
+					rawFamily = lastFamily;
+				}
+
+				const hId = rawDwelling ? `HC${selectedSource.year}-${rawDwelling}` : null;
+				const fId = rawFamily ? `FC${selectedSource.year}-${rawFamily}` : null;
+
+				if (hId) householdMap.set(i, hId);
+				if (fId) familyMap.set(i, fId);
+			}
+		}
+
+		const useLimit = limitCheckbox.checked;
+		const totalRows = useLimit ? Math.min(50, currentCsvData.length) : currentCsvData.length;
+		let processedRows = 0;
+
+		log(`Starting ingestion of ${totalRows} rows${useLimit ? ' (Limited to 50)' : ''}...`);
+		const startTime = Date.now();
+
+		// Fast deduplication check removed as per instructions
+		const dbSource = await getDatabaseSource(selectedSource);
+
+		const BATCH_SIZE = 100;
+		let batch = [];
+
+		for (let i = 0; i < totalRows; i++) {
+			if (stopIngestion) {
+				log(`Ingestion stopped by user at row ${i}.`);
+				break;
+			}
+
+			const row = currentCsvData[i];
+			const originalDataStr = JSON.stringify(row);
+
+			// Duplicate check removed as per instructions
+
+			try {
+				const mention = await prepareMention(row, i);
+				batch.push(mention);
+
+				if (batch.length >= BATCH_SIZE || i === totalRows - 1) {
+					await insertBatch(batch);
+					processedRows += batch.length;
+					batch = [];
+					updateProgress(processedRows, totalRows, startTime);
+				}
+			} catch (err) {
+				log(`Error processing batch near row ${i + 1}: ${err.message}`, true);
+			}
+		}
+
+		// Final progress update if needed
+		updateProgress(processedRows, totalRows, startTime);
+		log(`Finished row ingestion.`);
+
+		// Post-hoc Mentions and Assertions
+		if (stopIngestion) {
+			log('Ingestion stopped by user. Finalizing processed rows...');
+		} else {
+			log('Ingestion complete. Starting post-hoc processing...');
+		}
+
+		try {
+			await processPostHocMentions();
+			await processPostHocAssertions();
+		} catch (err) {
+			log(`Failed post-hoc processing: ${err.message}`, true);
+		}
+
+		log(`Ingestion batch complete.`);
+	} catch (globalErr) {
+		log(`Fatal Ingestion Error: ${globalErr.message}`, true);
+	} finally {
+		processBtn.disabled = false;
+		stopBtn.disabled = true;
+	}
 });
 
 async function insertBatch(batch) {
@@ -332,7 +425,7 @@ function getRowValue(obj, key) {
 	return foundKey ? obj[foundKey] : null;
 }
 
-async function prepareMention(row) {
+async function prepareMention(row, rowIndex = -1) {
 	// 1. Extract full_name and basic normalization
 	const firstName = row.first_name || row.FirstName || row.GivenName || '';
 	const middleName = row.middle_name || row.MiddleName || '';
@@ -360,8 +453,15 @@ async function prepareMention(row) {
 
 	const deathYear = (row.death_year || row.DeathYear) ? parseInt(row.death_year || row.DeathYear) : null;
 
+	const format = selectedSource.format || '';
+	const county = selectedSource.county || 'ALB';
+	const { type, year } = getFormatParams(format, selectedSource.year);
+	const line = getRowValue(row, 'line') || '';
+	const mId = idGenerator.generate(county, type, year, line);
+
 	// 4. Construct Mention Object
 	const mention = {
+		mention_id: mId,
 		source: await getDatabaseSource(selectedSource),
 		source_year: parseInt(selectedSource.year),
 		county: selectedSource.county || '',
@@ -382,7 +482,9 @@ async function prepareMention(row) {
 		norm_occupation: normOccupation,
 		is_enslaver: String(row.is_enslaver || row.IsEnslaver || '').toUpperCase() === 'Y' || String(row.is_enslaver || row.IsEnslaver || '').toLowerCase() === 'TRUE',
 		head: String(row.head || row.Head || '').toUpperCase() === 'Y' || String(row.head || row.Head || '').toLowerCase() === 'TRUE',
-		legal_status: '' // Default
+		legal_status: '', // Default
+		household_id: rowIndex >= 0 ? (householdMap.get(rowIndex) || null) : null,
+		family_id: rowIndex >= 0 ? (familyMap.get(rowIndex) || null) : null
 	};
 
 	applyFormatSpecificRules(mention, row);
@@ -500,6 +602,11 @@ async function processPostHocMentions() {
 
 	// Deduplicate mentions before further processing
 	await removeDuplicateMentions(dbSource);
+
+	if (selectedSource.format.includes('Census')) {
+		log('Household and family IDs pre-populated during ingestion. Skipping post-hoc updates.');
+		return;
+	}
 
 	let allMentions = [];
 	let offset = 0;
@@ -668,7 +775,14 @@ async function processEnslaverMentions(mentions) {
 		if (existingEnslavers.has(fullName)) continue;
 
 		const { first, middle, last } = parseGeneralName(fullName);
+		const format = selectedSource.format || '';
+		const county = selectedSource.county || 'ALB';
+		const { type, year } = getFormatParams(format, selectedSource.year);
+		const line = getRowValue(row, 'line') || '';
+		const mId = idGenerator.generate(county, type, year, line);
+
 		enslaversToCreate.push({
+			mention_id: mId,
 			source: dbSource,
 			source_year: parseInt(selectedSource.year),
 			county: selectedSource.county || '',
@@ -680,6 +794,8 @@ async function processEnslaverMentions(mentions) {
 			last_name: last,
 			legal_status: '',
 			is_enslaver: true,
+			race: 'W',
+			norm_race: 'W',
 			norm_first_name: normalizeFirstName(first),
 			nysiis_last_name: simpleNysiis(last)
 		});
@@ -716,7 +832,14 @@ async function processChurchEnslaverMentions(mentions) {
 	const enslaversToCreate = [];
 	for (const [fullName, row] of enslavers) {
 		const { first, middle, last } = parseGeneralName(fullName);
+		const format = selectedSource.format || '';
+		const county = selectedSource.county || 'ALB';
+		const { type, year } = getFormatParams(format, selectedSource.year);
+		const line = getRowValue(row, 'line') || '';
+		const mId = idGenerator.generate(county, type, year, line);
+
 		enslaversToCreate.push({
+			mention_id: mId,
 			source: dbSource,
 			source_year: parseInt(getRowValue(row, 'record_year') || selectedSource.year),
 			county: selectedSource.county || '',
@@ -728,6 +851,8 @@ async function processChurchEnslaverMentions(mentions) {
 			last_name: last,
 			legal_status: '',
 			is_enslaver: true,
+			race: 'W',
+			norm_race: 'W',
 			norm_first_name: normalizeFirstName(first),
 			nysiis_last_name: simpleNysiis(last)
 		});
@@ -796,8 +921,14 @@ async function processVitalRecordPostHoc(mentions) {
 			if (p.name && p.name.trim()) {
 				const fullName = p.name.replace(/[.,]/g, '').trim();
 				const { first, middle, last } = parseGeneralName(fullName, true);
+				const format = selectedSource.format || '';
+				const county = selectedSource.county || 'ALB';
+				const { type, year } = getFormatParams(format, selectedSource.year);
+				const line = getRowValue(row, 'line') || '';
+				const mId = idGenerator.generate(county, type, year, line);
 
 				parentsToCreate.push({
+					mention_id: mId,
 					source: "ALB_VR_1715",
 					source_year: childMention.source_year,
 					county: selectedSource.county || '',
@@ -968,22 +1099,6 @@ async function processPostHocAssertions() {
 							predicate = 'isSpouseOf';
 						}
 					}
-
-					// Rule 76: isMotherOf
-					if (!predicate && next && self.gender === 'F') {
-						const nextAge = parseInt(selectedSource.year) - (next.birth_year || 0);
-						if (nextAge < 14) {
-							predicate = 'isMotherOf';
-						}
-					}
-
-					// Rule 77: isSiblingOf
-					if (!predicate && next) {
-						const ageDiff = Math.abs((self.birth_year || 0) - (next.birth_year || 0));
-						if (ageDiff <= 20) {
-							predicate = 'isSiblingOf';
-						}
-					}
 				}
 
 				if (predicate) {
@@ -993,9 +1108,9 @@ async function processPostHocAssertions() {
 						subjId = self.mention_id;
 						objId = head.mention_id;
 					} else {
-						// In 1870 inferred rules, they apply between self and next
-						subjId = self.mention_id;
-						objId = next ? next.mention_id : null;
+						// In 1870, subject is head_mention_id, object is self.mention_id
+						subjId = head.mention_id;
+						objId = self.mention_id;
 					}
 
 					if (subjId && objId) {
@@ -1494,16 +1609,210 @@ async function saveAssertion(assertion) {
 	}
 }
 
-// Basic Stubs for Normalization Algorithms
-function simpleNysiis(str) {
-	if (!str) return '';
-	return str.substring(0, 4).toUpperCase(); // extremely simplified stub
+// Jaro-Winkler string similarity algorithm
+function jaroWinkler(s1, s2) {
+	if (!s1 || !s2) return 0.0;
+	s1 = s1.toLowerCase();
+	s2 = s2.toLowerCase();
+	
+	if (s1 === s2) return 1.0;
+	
+	const len1 = s1.length;
+	const len2 = s2.length;
+	const matchWindow = Math.floor(Math.max(len1, len2) / 2) - 1;
+	
+	const matches1 = new Array(len1).fill(false);
+	const matches2 = new Array(len2).fill(false);
+	
+	let m = 0;
+	for (let i = 0; i < len1; i++) {
+		const start = Math.max(0, i - matchWindow);
+		const end = Math.min(len2 - 1, i + matchWindow);
+		for (let j = start; j <= end; j++) {
+			if (!matches2[j] && s1[i] === s2[j]) {
+				matches1[i] = true;
+				matches2[j] = true;
+				m++;
+				break;
+			}
+		}
+	}
+	
+	if (m === 0) return 0.0;
+	
+	// Count transpositions
+	let t = 0;
+	let k = 0;
+	for (let i = 0; i < len1; i++) {
+		if (matches1[i]) {
+			while (!matches2[k]) {
+				k++;
+			}
+			if (s1[i] !== s2[k]) {
+				t++;
+			}
+			k++;
+		}
+	}
+	t = t / 2;
+	
+	const jaro = (m / len1 + m / len2 + (m - t) / m) / 3.0;
+	
+	// Winkler prefix scale
+	let l = 0;
+	const maxPrefix = Math.min(4, Math.min(len1, len2));
+	for (let i = 0; i < maxPrefix; i++) {
+		if (s1[i] === s2[i]) {
+			l++;
+		} else {
+			break;
+		}
+	}
+	
+	const p = 0.1;
+	return jaro + l * p * (1.0 - jaro);
 }
 
+// Soundex Algorithm
+function soundex(str) {
+	if (!str) return '';
+	let s = str.toUpperCase().replace(/[^A-Z]/g, '');
+	if (!s) return '';
+
+	const firstLetter = s[0];
+	const mappings = {
+		B: '1', F: '1', P: '1', V: '1',
+		C: '2', G: '2', J: '2', K: '2', Q: '2', S: '2', X: '2', Z: '2',
+		D: '3', T: '3',
+		L: '4',
+		M: '5', N: '5',
+		R: '6'
+	};
+
+	let codes = [firstLetter];
+	let prevCode = mappings[firstLetter] || '';
+
+	for (let i = 1; i < s.length; i++) {
+		let char = s[i];
+		let code = mappings[char] || '';
+
+		if (char === 'H' || char === 'W') {
+			continue;
+		}
+
+		if (code) {
+			if (code !== prevCode) {
+				codes.push(code);
+			}
+			prevCode = code;
+		} else {
+			prevCode = '';
+		}
+	}
+
+	return (codes.join('') + '000').substring(0, 4);
+}
+
+// Full NYSIIS Algorithm
+function simpleNysiis(str) {
+	if (!str) return '';
+	let s = str.toUpperCase().replace(/[^A-Z]/g, '');
+	if (!s) return '';
+
+	// At beginning of name
+	if (s.startsWith('MAC')) {
+		s = 'MC' + s.substring(3);
+	} else if (s.startsWith('KN')) {
+		s = 'N' + s.substring(2);
+	} else if (s.startsWith('SCH')) {
+		s = 'S' + s.substring(3);
+	}
+
+	// At end of name
+	if (s.endsWith('EE')) {
+		s = s.substring(0, s.length - 2) + 'Y';
+	} else if (s.endsWith('IE')) {
+		s = s.substring(0, s.length - 2) + 'Y';
+	} else if (s.endsWith('DT') || s.endsWith('RT') || s.endsWith('RD') || s.endsWith('NT') || s.endsWith('ND')) {
+		s = s.substring(0, s.length - 2) + 'D';
+	}
+
+	// Remove trailing S or A
+	if (s.endsWith('S') || s.endsWith('A')) {
+		s = s.substring(0, s.length - 1);
+	}
+
+	if (!s) return '';
+
+	// Keep the first character of the current string
+	const firstChar = s[0];
+	let remainder = s.substring(1);
+	let processed = '';
+
+	const isVowel = (char) => {
+		return char && 'AEIOU'.includes(char);
+	};
+
+	for (let i = 0; i < remainder.length; i++) {
+		let char = remainder[i];
+
+		// PH -> F
+		if (char === 'P' && remainder[i + 1] === 'H') {
+			processed += 'F';
+			i++;
+			continue;
+		}
+
+		if (char === 'H') {
+			let prec = s[i];
+			let foll = s[i + 2];
+			if (isVowel(prec) && isVowel(foll)) {
+				processed += 'H';
+			}
+			continue;
+		}
+
+		if (char === 'W') {
+			let prec = s[i];
+			if (!isVowel(prec)) {
+				processed += 'W';
+			}
+			continue;
+		}
+
+		if ('AEIOU'.includes(char)) {
+			processed += 'A';
+		} else if (char === 'Q') {
+			processed += 'G';
+		} else if (char === 'Z') {
+			processed += 'S';
+		} else if (char === 'M') {
+			processed += 'N';
+		} else if (char === 'K') {
+			processed += 'C';
+		} else {
+			processed += char;
+		}
+	}
+
+	let result = firstChar + processed;
+
+	// Collapse duplicates
+	let collapsed = '';
+	for (let i = 0; i < result.length; i++) {
+		if (result[i] !== result[i - 1]) {
+			collapsed += result[i];
+		}
+	}
+
+	return collapsed;
+}
+
+// Race Normalization
 function simpleRaceNorm(str) {
 	if (!str) return '';
-	const s = str.trim().toLowerCase();
-	if (s === 'w' || s.startsWith('cauc') || s === 'white') return 'W';
+	const s = str.trim().toUpperCase();
+	if (s === 'W' || s === 'CAUC' || s === 'CAUCASIAN' || s === 'WHITE') return 'W';
 	return 'B';
 }
 
@@ -1563,7 +1872,27 @@ function normalizeOccupation(raw) {
 		}
 	}
 
-	return s.toUpperCase();
+	// Try to find the closest category using Jaro-Winkler
+	let maxScore = -1;
+	let closestLabel = '';
+	for (const cat of occupationCategories) {
+		// Compare with label
+		let score = jaroWinkler(s, cat.label);
+		if (score > maxScore) {
+			maxScore = score;
+			closestLabel = cat.label.toUpperCase();
+		}
+		// Compare with examples
+		for (const ex of cat.examples) {
+			score = jaroWinkler(s, ex);
+			if (score > maxScore) {
+				maxScore = score;
+				closestLabel = cat.label.toUpperCase();
+			}
+		}
+	}
+
+	return closestLabel;
 }
 
 const nicknames = {
@@ -1679,10 +2008,102 @@ actionSelect.addEventListener('change', async (e) => {
 			return;
 		}
 		await ContenderNarratives();
+	} else if (action === 'normalize_mentions') {
+		if (!confirm('Are you sure you want to normalize all mentions fields?')) {
+			actionSelect.value = '';
+			return;
+		}
+		await normalizeMentions();
 	}
 
 	actionSelect.value = '';
 });
+
+async function normalizeMentions() {
+	if (typeof actionSelect !== 'undefined') actionSelect.disabled = true;
+	if (typeof progressSection !== 'undefined') progressSection.classList.remove('hidden');
+	log('Starting mentions normalization...');
+	const startTime = Date.now();
+
+	try {
+		// 1. Fetch all mentions
+		log('Fetching mentions from database...');
+		let allMentions = [];
+		let offset = 0;
+		const limit = 1000;
+		while (true) {
+			const res = await fetch(`${POSTGREST_URL}/mentions?limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
+			if (!res.ok) throw new Error('Failed to fetch mentions');
+			const data = await res.json();
+			if (data.length === 0) break;
+			allMentions = allMentions.concat(data);
+			if (typeof updateProgress !== 'undefined') {
+				updateProgress(allMentions.length, allMentions.length + (data.length === limit ? limit : 0), startTime, 'mentions loaded');
+			}
+			if (data.length < limit) break;
+			offset += limit;
+		}
+		log(`Loaded ${allMentions.length} mentions.`);
+
+		// 2. Compute normalizations and identify changes
+		const updates = [];
+		for (const m of allMentions) {
+			const normFirstName = normalizeFirstName(m.first_name);
+			const soundexLastName = soundex(m.last_name);
+			const nysiisLastName = simpleNysiis(m.last_name);
+			const normRace = simpleRaceNorm(m.race);
+			const normOcc = normalizeOccupation(m.occupation);
+
+			const needsUpdate = 
+				normFirstName !== (m.norm_first_name || '') ||
+				soundexLastName !== (m.soundex_last_name || '') ||
+				nysiisLastName !== (m.nysiis_last_name || '') ||
+				normRace !== (m.norm_race || '') ||
+				normOcc !== (m.norm_occupation || '');
+
+			if (needsUpdate) {
+				updates.push({
+					mention_id: m.mention_id,
+					norm_first_name: normFirstName,
+					soundex_last_name: soundexLastName,
+					nysiis_last_name: nysiisLastName,
+					norm_race: normRace,
+					norm_occupation: normOcc
+				});
+			}
+		}
+
+		log(`Found ${updates.length} mentions requiring normalization updates.`);
+
+		// 3. Save updates in batches of 500 using bulk POST with merge-duplicates resolution
+		const CHUNK_SIZE = 500;
+		for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+			const chunk = updates.slice(i, i + CHUNK_SIZE);
+			const res = await fetch(`${POSTGREST_URL}/mentions`, {
+				method: 'POST',
+				headers: { ...API_HEADERS, 'Prefer': 'resolution=merge-duplicates' },
+				body: JSON.stringify(chunk)
+			});
+			if (!res.ok) {
+				throw new Error(`Failed to save bulk normalization updates: ${res.status} ${await res.text()}`);
+			}
+
+			if (typeof updateProgress !== 'undefined') {
+				updateProgress(i + chunk.length, updates.length, startTime, 'mentions normalized');
+			}
+		}
+
+		log('Mentions normalization complete.');
+		if (typeof updateProgress !== 'undefined') {
+			updateProgress(100, 100, startTime, 'normalization complete');
+		}
+
+	} catch (err) {
+		log(`Normalization failed: ${err.message}`, true);
+	} finally {
+		if (typeof actionSelect !== 'undefined') actionSelect.disabled = false;
+	}
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', loadSources);

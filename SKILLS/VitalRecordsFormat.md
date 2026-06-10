@@ -52,6 +52,15 @@
 	- Apply the normalization as described in @Normalize.md
 	- Add mention to mentions table
 
+**Creating the mention_id**
+
+	- The county for this source is "ALB".
+	- The source type is "VR".
+	- The year is "1715".
+	- The mention_id is created as follows:
+		- Each source has a unique prefix: for example: ALB-VR-1715-1, where  "ALB" is the county, "VR" is the source type, "1715" is the year and "1" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-VR-1715-1.1, ALB-VR-1715-1.2 for the second, etc.
+
 **Add parent mentions**
 
 	- This occurs after all row mentions have been added to the mentions table

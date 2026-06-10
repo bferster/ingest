@@ -17,7 +17,7 @@
 		- family - A number used by the enumerator to identify a unique family, in order of visitation.
 		- full_name - The combination of the first-name, the middle_name, and the last_name separated by spaces. 
 		- first_name - The given name.
-		- middle_name - The middle name or initia.
+		- middle_name - The middle name or initial
 		- last_name - The surname.
 		- age - The age of the person in 1870.
 		- birth_year - The year the person was born. May be inaccurate +/- 5 years.
@@ -66,6 +66,16 @@
 	- Get the location_id as described in @GetLocation.md using the district field
 	- Add mention to mentions table
 
+
+**Creating the mention_id**
+
+	- The county for this source is "ALB".
+	- The source type is "CN".
+	- The year is "1870".
+	- The mention_id is created as follows:
+		- Each source has a unique prefix: for example: ALB-CN-1870-23, where  "ALB" is the county, "CN" is the source type, "1870" is the year and "23" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CN-1870-23.1, ALB-CN-1870-23.2 for the second, etc.
+
 **Assertions**
 
 	- This occurs after all mentions have been added to the mentions table
@@ -73,8 +83,6 @@
 		- Identify the head of household as the person with the head field value of TRUE.
 		- find the other mentions in the household with the same household_id and find predicate {
 			- if self is male and next row is female and age is less than 15 years younger or 5 years older, then self then predicate is isSpouseOf.
-			- if self is female and next row is younger than 14, then self then predicate is isMotherOf.	
-			-if self is followed by one or more other people within a 20 year age range, predicate is isSiblingOf.	
 			}
 		- Create assertion row data {
 			subject: head_mention_id

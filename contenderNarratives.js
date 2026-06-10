@@ -1,3 +1,8 @@
+function toTitleCase(str) {
+	if (!str) return '';
+	return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // FELLEGI-SUNTER ALGORITHM helpers
 function buildNameFrequencies(dataset) {
 	const firstNameFreq = new Map();
@@ -41,9 +46,9 @@ async function ContenderNarratives() {
 		log('Fetching mentions from database...');
 		let allMentions = [];
 		let offset = 0;
-		const limit = 1000;
+		const limit = 2000;
 		while (true) {
-			const res = await fetch(`${POSTGREST_URL}/mentions?limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+			const res = await fetch(`${POSTGREST_URL}/mentions?select=mention_id,source_year,full_name,first_name,norm_first_name,last_name,nysiis_last_name,race,gender,birth_year,death_year,occupation,norm_occupation,maiden_name,household_id,family_id,source,county&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 			if (!res.ok) throw new Error('Failed to fetch mentions');
 			const data = await res.json();
 			if (data.length === 0) break;
@@ -64,11 +69,14 @@ async function ContenderNarratives() {
 		let allAssertions = [];
 		offset = 0;
 		while (true) {
-			const res = await fetch(`${POSTGREST_URL}/assertions?limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+			const res = await fetch(`${POSTGREST_URL}/assertions?select=subject_id,predicate,object_id,object_string,county,start_year,end_year,confidence&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 			if (!res.ok) throw new Error('Failed to fetch assertions');
 			const data = await res.json();
 			if (data.length === 0) break;
 			allAssertions = allAssertions.concat(data);
+			if (typeof updateProgress !== 'undefined') {
+				updateProgress(allAssertions.length, allAssertions.length + (data.length === limit ? limit : 0), startTime, 'assertions loaded');
+			}
 			if (data.length < limit) break;
 			offset += limit;
 		}
@@ -115,6 +123,17 @@ async function ContenderNarratives() {
 
 		// --- Step 1: Build contender list from mentions ---
 		log('Step 1: Building contenders...');
+		// Pre-group mentions by household_id for O(N) lookup complexity
+		const mentionsByHousehold = new Map();
+		for (const m of allMentions) {
+			if (m.household_id) {
+				if (!mentionsByHousehold.has(m.household_id)) {
+					mentionsByHousehold.set(m.household_id, []);
+				}
+				mentionsByHousehold.get(m.household_id).push(m);
+			}
+		}
+
 		const contenders = [];
 		for (let i = 0; i < allMentions.length; i++) {
 			const m = allMentions[i];
@@ -167,14 +186,12 @@ async function ContenderNarratives() {
 				source_citation: m.source || ''
 			};
 
-			if (m.household_id) {
-				const householdMembers = allMentions.filter(other => 
-					other.household_id && 
-					other.household_id === m.household_id && 
-					other.mention_id !== m.mention_id
-				);
+			if (m.household_id && mentionsByHousehold.has(m.household_id)) {
+				const householdMembers = mentionsByHousehold.get(m.household_id);
 				for (const member of householdMembers) {
-					contender.housemates.push(getNormName(member));
+					if (member.mention_id !== m.mention_id) {
+						contender.housemates.push(getNormName(member));
+					}
 				}
 			}
 
@@ -263,39 +280,93 @@ async function ContenderNarratives() {
 		const updates = [];
 		for (let i = 0; i < contenders.length; i++) {
 			const c = contenders[i];
-			let narrative = "";
-			let sentence = "";
-			console.log(c)
-			const displayName = (c.full_name && c.full_name.toUpperCase() !== 'UNNAMED') ? c.full_name.toUpperCase() : "This unnamed person";
-			sentence += displayName + " is";
-			sentence += c.race === 'B' ? ' a Black' : (c.race === 'W' ? ' a White' : '');
-			sentence += c.gender === 'F' ? ' female' : (c.gender === 'M' ? ' male' : ' person');
-			if (c.birth_year) sentence += " born in " + c.birth_year;
+			
+			let fullName = c.full_name || '';
+			if (!fullName || fullName.toLowerCase() === 'unnamed') {
+				fullName = 'Unnamed';
+			} else {
+				fullName = toTitleCase(fullName);
+			}
+
+			let parenthetical = [];
+			let g = c.gender ? c.gender.toUpperCase() : '';
+			let r = c.race ? c.race.toUpperCase() : '';
+			let gr = '';
+			if (g && r) gr = `${g} / ${r}`;
+			else if (g) gr = g;
+			else if (r) gr = r;
+			
+			if (gr) {
+				parenthetical.push(gr);
+			}
+
+			let birthInfo = '';
+			if (c.birth_year) {
+				birthInfo = `born ${c.birth_year}`;
+				let loc = c.locations.length > 0 ? c.locations[0] : (mentionMap.get(c.mention_id).county || '');
+				if (loc) {
+					birthInfo += ` in ${toTitleCase(loc)}`;
+				}
+			} else {
+				let loc = c.locations.length > 0 ? c.locations[0] : (mentionMap.get(c.mention_id).county || '');
+				if (loc) {
+					birthInfo = `in ${toTitleCase(loc)}`;
+				}
+			}
+
+			if (birthInfo) {
+				parenthetical.push(birthInfo);
+			}
+
+			let narrative = `${fullName}`;
+			if (parenthetical.length > 0) {
+				narrative += ` (${parenthetical.join(' ')})`;
+			}
+			narrative += '.';
+
+			let parts = [];
+			
+			// Spouse of: [spouse full_name].
 			if (c.spouses.length > 0) {
-				sentence += c.gender === 'F' ? '. She' : '. He';
-				sentence += ` was married to ${c.spouses.join(', ')} `;
+				const spousesTitle = c.spouses.map(s => toTitleCase(s)).join(', ');
+				parts.push(`Spouse of: ${spousesTitle}.`);
 			}
-			if (c.parents.length > 0) sentence += ` with parents ${c.parents.join(', ')}.`;
+			
+			// Parents are: [parent norm_name].
+			if (c.parents.length > 0) {
+				const parentsTitle = c.parents.map(p => toTitleCase(p)).join(', ');
+				parts.push(`Parents are: ${parentsTitle}.`);
+			}
+			
+			// Children: [child1], [child2], ...
 			if (c.children.length > 0) {
-				sentence += c.gender === 'F' ? '. She' : '. He';
-				sentence += ` had children ${c.children.join(', ')}.`;
+				const childrenTitle = c.children.map(ch => toTitleCase(ch)).join(', ');
+				parts.push(`Children: ${childrenTitle}.`);
 			}
-			if (c.relatives.length > 0) sentence += ` Other relatives include ${c.relatives.join(', ')}.`;
-			if (c.housemates.length > 0) sentence += ` They are in a household with ${c.housemates.join(', ')}.`;
+			
+			// In house with: [housemate1], [housemate2], ...
+			if (c.housemates.length > 0) {
+				const housematesTitle = c.housemates.map(h => toTitleCase(h)).join(', ');
+				parts.push(`In house with: ${housematesTitle}.`);
+			}
+			
+			// Occupation was: [norm_occupation].
 			if (c.norm_occupation) {
-				sentence += c.gender === 'F' ? ' Her' : ' His';
-				sentence += ` occupation is ${c.norm_occupation}.`;
+				parts.push(`Occupation was: ${toTitleCase(c.norm_occupation)}.`);
 			}
+			
+			// Enslaved by: [enslaver].
 			if (c.enslaver_names.length > 0) {
-				sentence += c.gender === 'F' ? ' She' : ' He';
-				sentence += ` was enslaved by ${c.enslaver_names.join(', ')}.`;
+				const enslaversTitle = c.enslaver_names.map(e => toTitleCase(e)).join(', ');
+				parts.push(`Enslaved by: ${enslaversTitle}.`);
 			}
-			if (c.source_citation && c.year) sentence += ` Source: ${c.source_citation}, ${c.year}.`;
-			let loc = c.locations.length > 0 ? c.locations.join(', ') : (mentionMap.get(c.mention_id).county || '');
-			narrative = sentence;
+
+			if (parts.length > 0) {
+				narrative += ' ' + parts.join(' ');
+			}
+
 			narrative = narrative.replace(/\s+/g, ' ').replace(/\s+\./g, '.').trim();
 
-			console.log(narrative)
 			updates.push({
 				mention_id: c.mention_id,
 				narrative: narrative
@@ -303,17 +374,18 @@ async function ContenderNarratives() {
 		}
 
 		log('Step 4: Saving narratives to mentions...');
-		// Process patches concurrently in small chunks
-		const CHUNK_SIZE = 50;
+		// Process updates in batches of 500 using bulk POST with merge-duplicates resolution
+		const CHUNK_SIZE = 500;
 		for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
 			const chunk = updates.slice(i, i + CHUNK_SIZE);
-			await Promise.all(chunk.map(u =>
-				fetch(`${POSTGREST_URL}/mentions?mention_id=eq.${u.mention_id}`, {
-					method: 'PATCH',
-					headers: API_HEADERS,
-					body: JSON.stringify({ narrative: u.narrative })
-				})
-			));
+			const res = await fetch(`${POSTGREST_URL}/mentions`, {
+				method: 'POST',
+				headers: { ...API_HEADERS, 'Prefer': 'resolution=merge-duplicates' },
+				body: JSON.stringify(chunk)
+			});
+			if (!res.ok) {
+				throw new Error(`Failed to save bulk narratives: ${res.status} ${await res.text()}`);
+			}
 
 			if (typeof updateProgress !== 'undefined') {
 				updateProgress(i + chunk.length, updates.length, startTime, 'narratives saved');

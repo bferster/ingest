@@ -64,30 +64,22 @@
 
 **Step 3 — Compose narrative text**
 
-	For each contender, format a human-readable sentence describing the person. Skip clauses for fields that have no value. 
+	For each contender, format a human-readable sentence describing the person. Skip clauses for fields that have no value. Use title case for names and occupation.
 	Use these two templates:
 
 	For named individuals {
-		"[Full Name] ([gender], [race], born [birth_year] [primary location]).
-		Wife/Husband of [spouse full_name] (born [spouse birth_year]).
-		Mother/Father is [parent norm_name].
-		Children are [child1] (born [year]), [child2] (born [year]), ...
-		Household with [housemate1], [housemate2], ...
-		Occupation was [norm_occupation].
-		Enslaver was [enslaver].
-		Source: [source citation], [year]."
-
-		Example: "Sarah Goings (female, Black, born 1855 Albemarle Co. VA). Wife of Thomas Goings (born 1850). Mother is Eliza Goings. Children are John (born 1873), Mary (born 1875). Household with Robert Smith, Hannah Smith. Occupation was laundress. Enslaver was Thomas Jackson. Source: US census, 1880."
+		"[Full Name] ([gender] / [race] born [birth_year] in [birth_location]).
+		Spouse of: [spouse full_name].
+		Parents are: [parent norm_name].
+		Children: [child1], [child2], ...
+		In house with: [housemate1], [housemate2], ...
+		Occupation was: [norm_occupation].
+		Enslaved by: [enslaver].
+	
+		Example: "Sarah Goings (F / B Born 1855 in ALB). Spouse: Thomas Goings. Parents: Eliza Goings. Children: John, Mary. In house with: Robert Smith, Hannah Smith. Occupation: Laundress. Enslaved by :Thomas Jackson."
 		}
 
-	For unnamed individuals: {
-		"Unnamed [gender] ([race], born [birth_year]).
-		Enslaved by [enslaver] in [location].
-		Part of a household with [N] other [gender] enslaved.
-		Source: [source citation], [year]."
-
-		Example: "Unnamed female (Black, born 1845). Enslaved by General Thomas Smith in Albemarle Co. VA. Part of a household with 3 other enslaved females. Source: 1860 Slave Schedule."
-		}
+		if No full_name use  "Unnamed" as full_name
 
 	Save the resulting narrative string to the mention's narrative field. This text remains on the mention permanently — it is useful for the researcher to read in sentence form, in addition to feeding the embedding model in the next step.
 

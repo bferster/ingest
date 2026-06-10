@@ -41,6 +41,16 @@
 	| 10   | Frances Ailstock   | Frances    |             | Ailstock  | F      | 32  | 1826       | 1858 | 5' 2"     | dark         | scar upon upper lip and one upon back of right hand |
 	| 11   | George W Ailstock  | George     | W           | Ailstock  | M      | 23  | 1834       | 1857 | 5' 8"     | light        | scar on the forehead, four on the left hand and one on the forefinger of the right hand |
 
+
+**Creating the mention_id**
+
+	- The county for this source is "ALB".
+	- The source type is "FBR".
+	- The year is "1800".
+	- The mention_id is created as follows:
+		- Each source has a unique prefix: for example: ALB-FBR-1800-1, where  "ALB" is the county, "FBR" is the source type, "1800" is the year and "1" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-FBR-1800-1.1, ALB-FBR-1800-1.2 for the second, etc.
+	
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields	
