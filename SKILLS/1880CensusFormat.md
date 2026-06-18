@@ -78,40 +78,34 @@
 	- This occurs after all mentions have been added to the mentions table
 	- For each mention with the same household_id {
 		- Identify the head of household as the person with the head field value of TRUE.
-		- find the other mentions in the household with the same household_id and find predicate {
+		- find the other mentions in the household with the same household_id and find predicate ignoring case {
 			- If the relation field is "Wife" then predicate is isSpouseOf
 			- If the relation field is "Son" then predicate is isChildOf
 			- If the relation field is "Daughter" then predicate is isChildOf
 			- If the relation field is "Brother" then predicate is isSiblingOf
 			- If the relation field is "Sister" then predicate is isSiblingOf
-			- If the relation field is "Father" then predicate is isFatherOf
-			- If the relation field is "Mother" then predicate is isMotherOf
-			- If the relation field is "Grandfather" then predicate is isGrandfatherOf
-			- If the relation field is "Grandmother" then predicate is isGrandmotherOf
-			- If the relation field is "Uncle" then predicate is isUncleOf
-			- If the relation field is "Aunt" then predicate is isAuntOf
+			- If the relation field is "Father" then predicate is isParentOf
+			- If the relation field is "Mother" then predicate is isParentOf
+			- If the relation field is "Grandfather" then predicate is isGrandParentOf
+			- If the relation field is "Grandmother" then predicate is isGrandParentOf
+			- If the relation field is "Uncle" then predicate is isPiblingeOf
+			- If the relation field is "Aunt" then predicate is isPiblingOf
 			- If the relation field is "Cousin" then predicate is isCousinOf
-			- If the relation field is "Nephew" then predicate is isNephewOf
-			- If the relation field is "Niece" then predicate is isNieceOf
-			- If the relation field is "Son-in-law" then predicate is isSonInLawOf
-			- If the relation field is "Daughter-in-law" then predicate is isDaughterInLawOf
-			- If the relation field is "Brother-in-law" then predicate is isBrotherInLawOf
-			- If the relation field is "Sister-in-law" then predicate is isSisterInLawOf
-			- If the relation field is "Father-in-law" then predicate is isFatherInLawOf
-			- If the relation field is "Mother-in-law" then predicate is isMotherInLawOf
-			- If the relation field is "Grandfather-in-law" then predicate is isGrandfatherInLawOf
-			- If the relation field is "Grandmother-in-law" then predicate is isGrandmotherInLawOf
-			- If the relation field is "Uncle-in-law" then predicate is isUncleInLawOf
-			- If the relation field is "Aunt-in-law" then predicate is isAuntInLawOf
+			- If the relation field is "Nephew" then predicate is isNiblingOf
+			- If the relation field is "Niece" then predicate is isNiblingOf
+			- If the relation field is "Son-in-law" then predicate is isChildInLawOf
+			- If the relation field is "Daughter-in-law" then predicate is isChildInLawOf
+			- If the relation field is "Brother-in-law" then predicate is isSiblingInLawOf
+			- If the relation field is "Sister-in-law" then predicate is isSiblingInLawOf
+			- If the relation field is "Father-in-law" then predicate is isParentInLawOf
+			- If the relation field is "Mother-in-law" then predicate is isParentInLawOf
+			- If the relation field is "Grandfather-in-law" then predicate is isGrandParentInLawOf
+			- If the relation field is "Grandmother-in-law" then predicate is isGrandParentInLawOf
+			- If the relation field is "Uncle-in-law" then predicate is isPiblingInLawOf
+			- If the relation field is "Aunt-in-law" then predicate is isPiblingInLawOf
 			- If the relation field is "Cousin-in-law" then predicate is isCousinInLawOf
-			- If the relation field is "Nephew-in-law" then predicate is isNephewInLawOf
-			- If the relation field is "Niece-in-law" then predicate is isNieceInLawOf	
-			- If the relation field is "Son-in-law" then predicate is isSonInLawOf
-			- If the relation field is "Daughter-in-law" then predicate is isDaughterInLawOf
-			- If the relation field is "Brother-in-law" then predicate is isBrotherInLawOf
-			- If the relation field is "Sister-in-law" then predicate is isSisterInLawOf
-			- If the relation field is "Father-in-law" then predicate is isFatherInLawOf
-			- If the relation field is "Mother-in-law" then predicate is isMotherInLawOf
+			- If the relation field is "Nephew-in-law" then predicate is isNiblingInLawOf
+			- If the relation field is "Niece-in-law" then predicate is isNiblingInLawOf	
 			}
 		- Create assertion row data {
 			subject: head_mention_id

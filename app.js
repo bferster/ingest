@@ -380,7 +380,7 @@ async function insertBatch(batch) {
 		method: 'POST',
 		headers: {
 			...API_HEADERS,
-			'Prefer': 'return=representation'
+			'Prefer': 'return=representation,resolution=merge-duplicates'
 		},
 		body: JSON.stringify(batch)
 	});
@@ -1060,30 +1060,37 @@ async function processPostHocAssertions() {
 					confidence = 0.9;
 					// 1880 Census Logic (Relation-based)
 					const relation = self.original_data?.relation;
-					if (relation && relation !== "Self") {
+					if (relation && relation.toLowerCase() !== "self") {
 						const relationMap = {
-							"Wife": "isSpouseOf",
-							"Son": "isChildOf",
-							"Daughter": "isChildOf",
-							"Brother": "isSiblingOf",
-							"Sister": "isSiblingOf",
-							"Father": "isFatherOf",
-							"Mother": "isMotherOf",
-							"Grandfather": "isGrandfatherOf",
-							"Grandmother": "isGrandmotherOf",
-							"Uncle": "isUncleOf",
-							"Aunt": "isAuntOf",
-							"Cousin": "isCousinOf",
-							"Nephew": "isNephewOf",
-							"Niece": "isNieceOf",
-							"Son-in-law": "isSonInLawOf",
-							"Daughter-in-law": "isDaughterInLawOf",
-							"Brother-in-law": "isBrotherInLawOf",
-							"Sister-in-law": "isSisterInLawOf",
-							"Father-in-law": "isFatherInLawOf",
-							"Mother-in-law": "isMotherInLawOf"
+							"wife": "isSpouseOf",
+							"son": "isChildOf",
+							"daughter": "isChildOf",
+							"brother": "isSiblingOf",
+							"sister": "isSiblingOf",
+							"father": "isParentOf",
+							"mother": "isParentOf",
+							"grandfather": "isGrandParentOf",
+							"grandmother": "isGrandParentOf",
+							"uncle": "isPiblingeOf",
+							"aunt": "isPiblingOf",
+							"cousin": "isCousinOf",
+							"nephew": "isNiblingOf",
+							"niece": "isNiblingOf",
+							"son-in-law": "isChildInLawOf",
+							"daughter-in-law": "isChildInLawOf",
+							"brother-in-law": "isSiblingInLawOf",
+							"sister-in-law": "isSiblingInLawOf",
+							"father-in-law": "isParentInLawOf",
+							"mother-in-law": "isParentInLawOf",
+							"grandfather-in-law": "isGrandParentInLawOf",
+							"grandmother-in-law": "isGrandParentInLawOf",
+							"uncle-in-law": "isPiblingInLawOf",
+							"aunt-in-law": "isPiblingInLawOf",
+							"cousin-in-law": "isCousinInLawOf",
+							"nephew-in-law": "isNiblingInLawOf",
+							"niece-in-law": "isNiblingInLawOf"
 						};
-						predicate = relationMap[relation] || null;
+						predicate = relationMap[relation.toLowerCase()] || null;
 					}
 				} else {
 					// 1870 Census Logic (Inferred-based)
@@ -1102,16 +1109,8 @@ async function processPostHocAssertions() {
 				}
 
 				if (predicate) {
-					let subjId, objId;
-					if (is1880) {
-						// In 1880, 'relation' is relative to head. e.g. "Son" means self isChildOf head.
-						subjId = self.mention_id;
-						objId = head.mention_id;
-					} else {
-						// In 1870, subject is head_mention_id, object is self.mention_id
-						subjId = head.mention_id;
-						objId = self.mention_id;
-					}
+					let subjId = head.mention_id;
+					let objId = self.mention_id;
 
 					if (subjId && objId) {
 						const aKey = `${subjId}|${predicate}|${objId}`;
