@@ -44,18 +44,15 @@
 
 **Creating the mention_id**
 
-	- The county for this source is "ALB".
-	- The source type is "FBR".
-	- The year is "1800".
+	- The county for this source is "ALB"
+	- The source type is "FBR"
 	- The mention_id is created as follows:
-		- Each source has a unique prefix: for example: ALB-FBR-1800-1, where  "ALB" is the county, "FBR" is the source type, "1800" is the year and "1" is the line number from the line field in the row. 
-	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-FBR-1800-1.1, ALB-FBR-1800-1.2 for the second, etc.
+		- Each source has a unique prefix: for example: ALB-FBR-1, where  "ALB" is the county, "FBR" is the source type, and "1" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-FBR-1.1, ALB-FBR-1.2 for the second, etc.
 	
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields	
-	- The source field is set to "ALB_FBR" 
-	- The source_year field is set to the date column field value.
 	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.85.
 	- The legal_status field is set to "F".

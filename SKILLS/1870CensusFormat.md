@@ -63,35 +63,11 @@
 	- The legal_status field is set to "F"
 	- If the head field is "Y" then set the head field to TRUE	
 	- Apply the normalization as described in @Normalize.md
-	- Get the location_id as described in @GetLocation.md using the district field
 	- Add mention to mentions table
-
 
 **Creating the mention_id**
 
 	- The county for this source is "ALB".
-	- The source type is "CN".
-	- The year is "1870".
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-CN-1870-23, where  "ALB" is the county, "CN" is the source type, "1870" is the year and "23" is the line number from the line field in the row. 
 	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CN-1870-23.1, ALB-CN-1870-23.2 for the second, etc.
-
-**Assertions**
-
-	- This occurs after all mentions have been added to the mentions table
-	- For each mention with the same household_id {
-		- Identify the head of household as the person with the head field value of TRUE.
-		- find the other mentions in the household with the same household_id and find predicate {
-			- if self is male and next row is female and age is less than 15 years younger or 5 years older, then self then predicate is isSpouseOf.
-			}
-		- Create assertion row data {
-			subject: head_mention_id
-			predicate: predicate identified from above
-			object: person with relation person's mention_id
-			who: "1870Census" 
-			start_year: 1870
-			end_year: ""	
-			confidence: 0.5
-			}
-		- Add assertion to assertions table
-	}

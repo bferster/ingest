@@ -44,29 +44,31 @@
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.
-	- The source field is set to "ALB_VR_1715".
-	- The source_type field is set to "vitalRecords".
 	- The source_year field is set to the year in the record_year field.
 	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.84.
 	- Apply the normalization as described in @Normalize.md
+	- Create mention_id as decribed below
 	- Add mention to mentions table
 
-**Creating the mention_id**
+**Creating the mention_id and source**
 
 	- The county for this source is "ALB".
-	- The source type is "VR".
-	- The year is "1715".
+	- Instead of getting source from sources.csv we will create the source as follows:
+		- if the type field is "birth", the is "VRB"
+		- if the type field is "death", the prefix is "VRD"
+		- if the type field is "marriage", the prefix is "VRM"
+	- The source is created as follows: for example: ALB-VRB-1, where  "ALB" is the county, "VRB" is the prefix
 	- The mention_id is created as follows:
-		- Each source has a unique prefix: for example: ALB-VR-1715-1, where  "ALB" is the county, "VR" is the source type, "1715" is the year and "1" is the line number from the line field in the row. 
-	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-VR-1715-1.1, ALB-VR-1715-1.2 for the second, etc.
+		- Each source has a unique prefix: for example: ALB-VRB-1, where  "ALB" is the county, "VRB" is the prefix and "1" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-VRB-1.1, ALB-VRB-1.2 for the second, etc.
 
 **Add parent mentions**
 
 	- This occurs after all row mentions have been added to the mentions table
 	- for each mention added after ingestion of this source {
+		- create mention_id as decribed above
 		- if mother field or father field in original_data is not empty add an mention for the mother or father {
-			- The source field is set to the same as the row's source field.
 			- The gender field is set to "F" for the mother or "M" for the father.
 			- The source_year field is set to the year in the record_year field.
 			- The original_data field is set to the entire row as a JSONB object
@@ -83,16 +85,13 @@
 		- Add mention to mentions table.
 		}
 		
-
 **Add assertions**
 
 	- This occurs after all parent mentions have been added to the mentions table.
 	- if mother field or father field in original_data is not empty add an assertion for the mother of father {
-		- if mother mentioned add an assertion for the mother with predicate 'IsMotherOf'
-		- else if father mentioned add an assertion for the father with predicate 'IsFatherOf'
 		- Add assertion {
 			subject: parent's mention_id.
-			predicate: as defined above.
+			predicate: "isParentOf".
 			object: child's mention_id.
 			who: "vitalRecords". 
 			start_year: record_year.

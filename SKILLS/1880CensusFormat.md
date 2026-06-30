@@ -61,17 +61,14 @@
 		}
 	- If the head field is "Y" then set the head  field to TRUE.	
 	- Apply the normalization as described in @Normalize.md.
-	- Get the location_id as described in @GetLocation.md using the district field prepended with ED_1880, i.e "ED_1880_21".
 	- Add mention to mentions table
 
 **Creating the mention_id**
 	- The county for this source is "ALB".
 	- The source type is "CN".
-	- The year is "1880".
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-CN-1880-23, where  "ALB" is the county, "CN" is the source type, "1880" is the year and "23" is the line number from the line field in the row. 
 	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CN-1880-23.1, ALB-CN-1880-23.2 for the second, etc.
-
 
 **Assertions**
 
@@ -88,9 +85,9 @@
 			- If the relation field is "Mother" then predicate is isParentOf
 			- If the relation field is "Grandfather" then predicate is isGrandParentOf
 			- If the relation field is "Grandmother" then predicate is isGrandParentOf
-			- If the relation field is "Uncle" then predicate is isPiblingeOf
+			- If the relation field is "Uncle" then predicate is isPiblingOf
 			- If the relation field is "Aunt" then predicate is isPiblingOf
-			- If the relation field is "Cousin" then predicate is isCousinOf
+			- If the relation field is "Cousin" then predicate is isCousinOfnibling
 			- If the relation field is "Nephew" then predicate is isNiblingOf
 			- If the relation field is "Niece" then predicate is isNiblingOf
 			- If the relation field is "Son-in-law" then predicate is isChildInLawOf

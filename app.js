@@ -14,12 +14,12 @@ class MentionIdGenerator {
 	constructor() {
 		this.usedIds = {};
 	}
-	generate(county, type, year, line) {
+	generate(prefix, line) {
 		let cleanLine = String(line || '').trim();
 		if (!cleanLine) {
 			cleanLine = 'unknown';
 		}
-		const baseId = `${county}-${type}-${year}-${cleanLine}`;
+		const baseId = `${prefix}-${cleanLine}`;
 		if (this.usedIds[baseId] === undefined) {
 			this.usedIds[baseId] = 0;
 			return baseId;
@@ -30,32 +30,29 @@ class MentionIdGenerator {
 	}
 }
 
-function getFormatParams(format, sourceYear) {
-	let type = '';
-	let year = sourceYear;
+function getMentionPrefix(format, county, sourceYear, row) {
 	if (format.includes('Census')) {
-		type = 'CN';
-		year = format.includes('1880') ? '1880' : '1870';
+		const year = format.includes('1880') ? '1880' : '1870';
+		return `${county}-CN-${year}`;
 	} else if (format.includes('FindAGrave')) {
-		type = 'FG';
-		year = '1600';
+		return `${county}-FG`;
 	} else if (format.includes('Church')) {
-		type = 'CH';
-		year = '1851';
+		return `${county}-CH`;
 	} else if (format.includes('FreeBlackRegister')) {
-		type = 'FBR';
-		year = '1800';
+		return `${county}-FBR`;
 	} else if (format.includes('FreedmansList')) {
-		type = 'FL';
-		year = '1865';
+		return `${county}-FL`;
 	} else if (format.includes('SlaveSchedule')) {
-		type = 'SS';
-		year = sourceYear;
+		return `${county}-SS-${sourceYear}`;
 	} else if (format.includes('VitalRecord')) {
-		type = 'VR';
-		year = '1715';
+		const rType = (row && (row.type || row.Type || '')) ? String(row.type || row.Type).toLowerCase() : '';
+		let pfx = 'VR';
+		if (rType.includes('birth')) pfx = 'VRB';
+		else if (rType.includes('death')) pfx = 'VRD';
+		else if (rType.includes('marriage')) pfx = 'VRM';
+		return `${county}-${pfx}`;
 	}
-	return { type: type || 'GEN', year: year || sourceYear };
+	return `${county}-GEN`;
 }
 
 let idGenerator = new MentionIdGenerator();
@@ -81,7 +78,7 @@ async function fetchExistingAssertionKeys(who) {
 	let offset = 0;
 	const limit = 2000;
 	while (true) {
-		const res = await fetch(`${POSTGREST_URL}/assertions?who=eq.${who}&select=subject_id,predicate,object_id,object_string&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/assertions?who=eq.${who}&select=subject_id,predicate,object_id&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
 		if (!res.ok) {
 			log(`Warning: Failed to fetch existing assertions for ${who} at offset ${offset}`, true);
 			break;
@@ -89,7 +86,7 @@ async function fetchExistingAssertionKeys(who) {
 		const data = await res.json();
 		if (data.length === 0) break;
 		data.forEach(a => {
-			const obj = a.object_id || a.object_string || 'null';
+			const obj = a.object_id || 'null';
 			keys.add(`${a.subject_id}|${a.predicate}|${obj}`);
 		});
 		if (data.length < limit) break;
@@ -317,8 +314,11 @@ processBtn.addEventListener('click', async () => {
 
 		// Fast deduplication check removed as per instructions
 		const dbSource = await getDatabaseSource(selectedSource);
+	const format = selectedSource.format || '';
+	const county = selectedSource.county || 'ALB';
+	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
-		const BATCH_SIZE = 100;
+		const BATCH_SIZE = 1000;
 		let batch = [];
 
 		for (let i = 0; i < totalRows; i++) {
@@ -455,16 +455,15 @@ async function prepareMention(row, rowIndex = -1) {
 
 	const format = selectedSource.format || '';
 	const county = selectedSource.county || 'ALB';
-	const { type, year } = getFormatParams(format, selectedSource.year);
+	const prefix = getMentionPrefix(format, county, selectedSource.year, row);
 	const line = getRowValue(row, 'line') || '';
-	const mId = idGenerator.generate(county, type, year, line);
+	const mId = idGenerator.generate(prefix, line);
 
 	// 4. Construct Mention Object
 	const mention = {
 		mention_id: mId,
-		source: await getDatabaseSource(selectedSource),
+		source: prefix,
 		source_year: parseInt(selectedSource.year),
-		county: selectedSource.county || '',
 		original_data: row, // will be converted to JSONB by PostgREST
 		confidence: currentConfidence,
 		full_name: fullName,
@@ -480,7 +479,6 @@ async function prepareMention(row, rowIndex = -1) {
 		nysiis_last_name: nysiisLastName,
 		norm_race: normRace,
 		norm_occupation: normOccupation,
-		is_enslaver: String(row.is_enslaver || row.IsEnslaver || '').toUpperCase() === 'Y' || String(row.is_enslaver || row.IsEnslaver || '').toLowerCase() === 'TRUE',
 		head: String(row.head || row.Head || '').toUpperCase() === 'Y' || String(row.head || row.Head || '').toLowerCase() === 'TRUE',
 		legal_status: '', // Default
 		household_id: rowIndex >= 0 ? (householdMap.get(rowIndex) || null) : null,
@@ -513,13 +511,6 @@ async function applyFormatSpecificRules(mention, row) {
 	if (format.includes('FreeBlackRegister')) {
 		mention.legal_status = 'F';
 		mention.confidence = 0.85;
-
-		// Date column override for source_year
-		const rawDate = row.date || row.Date || '';
-		if (rawDate) {
-			const yr = parseInt(rawDate);
-			if (!isNaN(yr)) mention.source_year = yr;
-		}
 
 		// Race logic based on color
 		const color = (row.color || row.Color || '').toLowerCase();
@@ -558,6 +549,7 @@ async function applyFormatSpecificRules(mention, row) {
 	// FreedmansList
 	if (format.includes('FreedmansList')) {
 		mention.legal_status = 'F';
+		mention.race = 'B';
 		mention.norm_race = 'B';
 		if (row.record_year) {
 			const yr = parseInt(row.record_year);
@@ -599,9 +591,12 @@ async function processPostHocMentions() {
 	log('Starting Post-Hoc Mentions processing...');
 
 	const dbSource = await getDatabaseSource(selectedSource);
+	const format = selectedSource.format || '';
+	const county = selectedSource.county || 'ALB';
+	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
 	// Deduplicate mentions before further processing
-	await removeDuplicateMentions(dbSource);
+	await removeDuplicateMentions(prefix);
 
 	if (selectedSource.format.includes('Census')) {
 		log('Household and family IDs pre-populated during ingestion. Skipping post-hoc updates.');
@@ -610,10 +605,11 @@ async function processPostHocMentions() {
 
 	let allMentions = [];
 	let offset = 0;
-	const limit = 1000;
+	const limit = 10000;
 
 	while (true) {
-		const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,original_data,source_year&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 		if (!res.ok) {
 			throw new Error('Failed to fetch mentions for post-hoc processing');
 		}
@@ -753,6 +749,9 @@ async function processEnslaverMentions(mentions) {
 
 	const enslaverNames = Array.from(enslavers.keys());
 	const dbSource = await getDatabaseSource(selectedSource);
+	const format = selectedSource.format || '';
+	const county = selectedSource.county || 'ALB';
+	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
 	// 1. Bulk check for existing enslavers
 	log(`Checking database for existing records for ${enslaverNames.length} enslavers...`);
@@ -760,7 +759,7 @@ async function processEnslaverMentions(mentions) {
 	for (let i = 0; i < enslaverNames.length; i += 100) {
 		const chunk = enslaverNames.slice(i, i + 100);
 		try {
-			const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})&is_enslaver=is.true`, { headers: API_HEADERS });
+			const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${prefix}-*&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})&is_enslaver=is.true`, { headers: API_HEADERS });
 			if (res.ok) {
 				const data = await res.json();
 				data.forEach(m => existingEnslavers.add(m.full_name));
@@ -777,15 +776,14 @@ async function processEnslaverMentions(mentions) {
 		const { first, middle, last } = parseGeneralName(fullName);
 		const format = selectedSource.format || '';
 		const county = selectedSource.county || 'ALB';
-		const { type, year } = getFormatParams(format, selectedSource.year);
-		const line = getRowValue(row, 'line') || '';
-		const mId = idGenerator.generate(county, type, year, line);
+		const prefix = getMentionPrefix(format, county, selectedSource.year, row);
+	const line = getRowValue(row, 'line') || '';
+	const mId = idGenerator.generate(prefix, line);
 
 		enslaversToCreate.push({
 			mention_id: mId,
-			source: dbSource,
+		source: prefix,
 			source_year: parseInt(selectedSource.year),
-			county: selectedSource.county || '',
 			original_data: row,
 			confidence: 0.83,
 			full_name: fullName,
@@ -793,7 +791,6 @@ async function processEnslaverMentions(mentions) {
 			middle_name: middle,
 			last_name: last,
 			legal_status: '',
-			is_enslaver: true,
 			race: 'W',
 			norm_race: 'W',
 			norm_first_name: normalizeFirstName(first),
@@ -828,21 +825,23 @@ async function processChurchEnslaverMentions(mentions) {
 
 	const enslaverNames = Array.from(enslavers.keys());
 	const dbSource = await getDatabaseSource(selectedSource);
+	const format = selectedSource.format || '';
+	const county = selectedSource.county || 'ALB';
+	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
 	const enslaversToCreate = [];
 	for (const [fullName, row] of enslavers) {
 		const { first, middle, last } = parseGeneralName(fullName);
 		const format = selectedSource.format || '';
 		const county = selectedSource.county || 'ALB';
-		const { type, year } = getFormatParams(format, selectedSource.year);
-		const line = getRowValue(row, 'line') || '';
-		const mId = idGenerator.generate(county, type, year, line);
+		const prefix = getMentionPrefix(format, county, selectedSource.year, row);
+	const line = getRowValue(row, 'line') || '';
+	const mId = idGenerator.generate(prefix, line);
 
 		enslaversToCreate.push({
 			mention_id: mId,
-			source: dbSource,
+		source: prefix,
 			source_year: parseInt(getRowValue(row, 'record_year') || selectedSource.year),
-			county: selectedSource.county || '',
 			original_data: row,
 			confidence: 0.85,
 			full_name: fullName,
@@ -850,7 +849,6 @@ async function processChurchEnslaverMentions(mentions) {
 			middle_name: middle,
 			last_name: last,
 			legal_status: '',
-			is_enslaver: true,
 			race: 'W',
 			norm_race: 'W',
 			norm_first_name: normalizeFirstName(first),
@@ -895,6 +893,21 @@ async function processVitalRecordPostHoc(mentions) {
 	let processed = 0;
 	const total = mentions.length;
 	const startTime = Date.now();
+	
+	idGenerator = new MentionIdGenerator();
+	for (const m of mentions) {
+		const r = m.original_data;
+		if (!r) continue;
+		const format = selectedSource.format || '';
+		const county = selectedSource.county || 'ALB';
+		const prefix = getMentionPrefix(format, county, selectedSource.year, r);
+		const line = getRowValue(r, 'line') || '';
+		const baseId = line ? `${prefix}-${line}` : `${prefix}`;
+		let count = idGenerator.usedIds[baseId] || 0;
+		count++;
+		idGenerator.usedIds[baseId] = count;
+	}
+
 	const parentsToCreate = [];
 
 	for (const childMention of mentions) {
@@ -907,6 +920,8 @@ async function processVitalRecordPostHoc(mentions) {
 
 		const motherName = getRowValue(row, 'mother');
 		const fatherName = getRowValue(row, 'father');
+		const cleanMotherName = motherName ? motherName.replace(/[.,]/g, '').trim() : '';
+		const cleanFatherName = fatherName ? fatherName.replace(/[.,]/g, '').trim() : '';
 
 		if (childMention.full_name === motherName || childMention.full_name === fatherName) {
 			continue;
@@ -923,15 +938,14 @@ async function processVitalRecordPostHoc(mentions) {
 				const { first, middle, last } = parseGeneralName(fullName, true);
 				const format = selectedSource.format || '';
 				const county = selectedSource.county || 'ALB';
-				const { type, year } = getFormatParams(format, selectedSource.year);
-				const line = getRowValue(row, 'line') || '';
-				const mId = idGenerator.generate(county, type, year, line);
+				const prefix = getMentionPrefix(format, county, selectedSource.year, row);
+	const line = getRowValue(row, 'line') || '';
+	const mId = idGenerator.generate(prefix, line);
 
 				parentsToCreate.push({
 					mention_id: mId,
-					source: "ALB_VR_1715",
+		source: prefix,
 					source_year: childMention.source_year,
-					county: selectedSource.county || '',
 					original_data: row,
 					confidence: 0.85,
 					full_name: fullName,
@@ -948,7 +962,7 @@ async function processVitalRecordPostHoc(mentions) {
 
 	// Batch write parents in parallel
 	log(`Writing ${parentsToCreate.length} parent mentions...`);
-	const BATCH_SIZE = 100;
+	const BATCH_SIZE = 1000;
 	const batches = [];
 	for (let i = 0; i < parentsToCreate.length; i += BATCH_SIZE) {
 		batches.push(parentsToCreate.slice(i, i + BATCH_SIZE));
@@ -978,13 +992,17 @@ async function processPostHocAssertions() {
 	log('Starting Post-Hoc Assertions processing...');
 
 	const dbSource = await getDatabaseSource(selectedSource);
+	const format = selectedSource.format || '';
+	const county = selectedSource.county || 'ALB';
+	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
 	let allMentions = [];
 	let offset = 0;
-	const limit = 1000;
+	const limit = 10000;
 
 	while (true) {
-		const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,original_data,source_year&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 		if (!res.ok) {
 			throw new Error('Failed to fetch mentions for assertions');
 		}
@@ -1004,6 +1022,12 @@ async function processPostHocAssertions() {
 	} else if (selectedSource.format.includes('Church')) {
 		await processChurchAssertions(mentions);
 	} else if (selectedSource.format.includes('Census')) {
+		if (selectedSource.year == 1870) {
+			log('Skipping post-hoc assertions for 1870 Census.');
+			await removeDuplicateAssertions();
+			return;
+		}
+
 		// Sort by line number from original_data to maintain enumeration order
 		mentions.sort((a, b) => {
 			const lineA = parseInt(a.original_data?.line || 0);
@@ -1118,7 +1142,6 @@ async function processPostHocAssertions() {
 							assertionsToCreate.push({
 								subject_id: subjId,
 								predicate: predicate,
-								county: selectedSource.county || '',
 								object_id: objId,
 								who: who,
 								start_year: parseInt(selectedSource.year),
@@ -1133,7 +1156,7 @@ async function processPostHocAssertions() {
 
 		// Write assertions in parallel batches
 		log(`Writing ${assertionsToCreate.length} Census assertions...`);
-		const BATCH_SIZE = 100;
+		const BATCH_SIZE = 1000;
 		const assertionBatches = [];
 		for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
 			assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
@@ -1169,8 +1192,12 @@ async function removeDuplicateAssertions() {
 	let offset = 0;
 	const limit = 2000;
 	while (true) {
-		const res = await fetch(`${POSTGREST_URL}/assertions?select=assertion_id,subject_id,predicate,object_id,object_string,who,confidence,created&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
-		if (!res.ok) throw new Error('Failed to fetch assertions for cleanup');
+		const res = await fetch(`${POSTGREST_URL}/assertions?select=assertion_id,subject_id,predicate,object_id,who,confidence,created&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
+		if (!res.ok) {
+			const errText = await res.text();
+			log(`Error fetching assertions for cleanup: ${errText}`, true);
+			throw new Error('Failed to fetch assertions for cleanup');
+		}
 		const data = await res.json();
 		if (data.length === 0) break;
 		allAssertions = allAssertions.concat(data);
@@ -1185,8 +1212,8 @@ async function removeDuplicateAssertions() {
 
 	const groups = {};
 	allAssertions.forEach(a => {
-		// Key must account for both object_id and object_string to be unique
-		const objValue = a.object_id || a.object_string || 'null';
+		// Key must account for object_id to be unique
+		const objValue = a.object_id || 'null';
 		const key = `${a.subject_id}|${a.predicate}|${objValue}`;
 		if (!groups[key]) groups[key] = [];
 		groups[key].push(a);
@@ -1238,13 +1265,14 @@ async function removeDuplicateAssertions() {
 	}
 }
 
-async function removeDuplicateMentions(dbSource) {
+async function removeDuplicateMentions(prefix) {
 	log('Checking for duplicate mentions to remove...');
 	let allMentions = [];
 	let offset = 0;
-	const limit = 2000;
+	const limit = 10000;
 	while (true) {
-		const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&select=mention_id,full_name,original_data&limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
+		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,original_data&limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
 		if (!res.ok) throw new Error('Failed to fetch mentions for cleanup');
 		const data = await res.json();
 		if (data.length === 0) break;
@@ -1340,7 +1368,6 @@ async function processSlaveScheduleAssertions(mentions) {
 				assertionsToCreate.push({
 					subject_id: m.mention_id,
 					predicate: 'wasEnslavedBy',
-					county: selectedSource.county || '',
 					object_id: enslaverId,
 					who: 'slaveSchedule',
 					start_year: parseInt(selectedSource.year),
@@ -1386,7 +1413,7 @@ async function processSlaveScheduleAssertions(mentions) {
 
 	// Phase 2: Bulk POST assertions in parallel
 	log(`Writing ${assertionsToCreate.length} assertions...`);
-	const BATCH_SIZE = 100;
+	const BATCH_SIZE = 1000;
 	const assertionBatches = [];
 	for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
 		assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
@@ -1432,10 +1459,12 @@ async function processVitalRecordAssertions(mentions) {
 
 		const motherName = getRowValue(row, 'mother');
 		const fatherName = getRowValue(row, 'father');
+		const cleanMotherName = motherName ? motherName.replace(/[.,]/g, '').trim() : '';
+		const cleanFatherName = fatherName ? fatherName.replace(/[.,]/g, '').trim() : '';
 
-		if (motherName && m.full_name === motherName && m.gender === 'F') {
+		if (cleanMotherName && m.full_name === cleanMotherName && m.gender === 'F') {
 			groups[line].mother = m;
-		} else if (fatherName && m.full_name === fatherName && m.gender === 'M') {
+		} else if (cleanFatherName && m.full_name === cleanFatherName && m.gender === 'M') {
 			groups[line].father = m;
 		} else {
 			// It's the child if it's not a parent we recognized
@@ -1454,12 +1483,11 @@ async function processVitalRecordAssertions(mentions) {
 		if (!child) continue;
 
 		if (mother) {
-			const mKey = `${mother.mention_id}|IsMotherOf|${child.mention_id}`;
+			const mKey = `${mother.mention_id}|isParentOf|${child.mention_id}`;
 			if (!existingAssertionKeys.has(mKey)) {
 				currentBatch.push({
 					subject_id: mother.mention_id,
-					predicate: 'IsMotherOf',
-					county: selectedSource.county || '',
+					predicate: 'isParentOf',
 					object_id: child.mention_id,
 					who: 'vitalRecords',
 					start_year: child.source_year,
@@ -1470,12 +1498,11 @@ async function processVitalRecordAssertions(mentions) {
 			}
 		}
 		if (father) {
-			const fKey = `${father.mention_id}|IsFatherOf|${child.mention_id}`;
+			const fKey = `${father.mention_id}|isParentOf|${child.mention_id}`;
 			if (!existingAssertionKeys.has(fKey)) {
 				currentBatch.push({
 					subject_id: father.mention_id,
-					predicate: 'IsFatherOf',
-					county: selectedSource.county || '',
+					predicate: 'isParentOf',
 					object_id: child.mention_id,
 					who: 'vitalRecords',
 					start_year: child.source_year,
@@ -1486,7 +1513,7 @@ async function processVitalRecordAssertions(mentions) {
 			}
 		}
 
-		if (currentBatch.length >= 100) {
+		if (currentBatch.length >= 1000) {
 			assertionBatches.push([...currentBatch]);
 			currentBatch.length = 0;
 		}
@@ -1515,8 +1542,11 @@ async function processVitalRecordAssertions(mentions) {
 async function processChurchAssertions(mentions) {
 	log('Creating wasEnslavedBy assertions for Church records...');
 
-	const dbSource = await getDatabaseSource(selectedSource); 
-	
+	const dbSource = await getDatabaseSource(selectedSource);
+	const format = selectedSource.format || '';
+	const county = selectedSource.county || 'ALB';
+	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
+
 	const enslaved = mentions.filter(m => getRowValue(m.original_data, 'enslaver_full_name'));
 	if (enslaved.length === 0) {
 		log('No enslaved persons with enslavers found in these records.');
@@ -1524,12 +1554,12 @@ async function processChurchAssertions(mentions) {
 	}
 
 	const enslaverNames = Array.from(new Set(enslaved.map(m => getRowValue(m.original_data, 'enslaver_full_name'))));
-	const enslaverMap = new Map(); 
+	const enslaverMap = new Map();
 
 	for (let i = 0; i < enslaverNames.length; i += 100) {
 		const chunk = enslaverNames.slice(i, i + 100);
 		try {
-			const res = await fetch(`${POSTGREST_URL}/mentions?source=eq.${encodeURIComponent(dbSource)}&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})&is_enslaver=is.true`, { headers: API_HEADERS });
+			const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${prefix}-*&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})`, { headers: API_HEADERS });
 			if (res.ok) {
 				const data = await res.json();
 				data.forEach(m => enslaverMap.set(m.full_name, m.mention_id));
@@ -1548,7 +1578,7 @@ async function processChurchAssertions(mentions) {
 	for (const m of enslaved) {
 		const enslaverName = getRowValue(m.original_data, 'enslaver_full_name');
 		const enslaverId = enslaverMap.get(enslaverName);
-		
+
 		if (enslaverId) {
 			const objValue = enslaverId || 'null';
 			const aKey = `${m.mention_id}|wasEnslavedBy|${objValue}`;
@@ -1556,7 +1586,6 @@ async function processChurchAssertions(mentions) {
 				assertionsToCreate.push({
 					subject_id: m.mention_id,
 					predicate: 'wasEnslavedBy',
-					county: selectedSource.county || '',
 					object_id: enslaverId,
 					who: dbSource,
 					start_year: parseInt(getRowValue(m.original_data, 'record_year') || selectedSource.year),
@@ -1569,7 +1598,7 @@ async function processChurchAssertions(mentions) {
 	}
 
 	log(`Writing ${assertionsToCreate.length} assertions...`);
-	const BATCH_SIZE = 100;
+	const BATCH_SIZE = 1000;
 	const assertionBatches = [];
 	for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
 		assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
@@ -1613,16 +1642,16 @@ function jaroWinkler(s1, s2) {
 	if (!s1 || !s2) return 0.0;
 	s1 = s1.toLowerCase();
 	s2 = s2.toLowerCase();
-	
+
 	if (s1 === s2) return 1.0;
-	
+
 	const len1 = s1.length;
 	const len2 = s2.length;
 	const matchWindow = Math.floor(Math.max(len1, len2) / 2) - 1;
-	
+
 	const matches1 = new Array(len1).fill(false);
 	const matches2 = new Array(len2).fill(false);
-	
+
 	let m = 0;
 	for (let i = 0; i < len1; i++) {
 		const start = Math.max(0, i - matchWindow);
@@ -1636,9 +1665,9 @@ function jaroWinkler(s1, s2) {
 			}
 		}
 	}
-	
+
 	if (m === 0) return 0.0;
-	
+
 	// Count transpositions
 	let t = 0;
 	let k = 0;
@@ -1654,9 +1683,9 @@ function jaroWinkler(s1, s2) {
 		}
 	}
 	t = t / 2;
-	
+
 	const jaro = (m / len1 + m / len2 + (m - t) / m) / 3.0;
-	
+
 	// Winkler prefix scale
 	let l = 0;
 	const maxPrefix = Math.min(4, Math.min(len1, len2));
@@ -1667,7 +1696,7 @@ function jaroWinkler(s1, s2) {
 			break;
 		}
 	}
-	
+
 	const p = 0.1;
 	return jaro + l * p * (1.0 - jaro);
 }
@@ -2053,7 +2082,7 @@ async function normalizeMentions() {
 			const normRace = simpleRaceNorm(m.race);
 			const normOcc = normalizeOccupation(m.occupation);
 
-			const needsUpdate = 
+			const needsUpdate =
 				normFirstName !== (m.norm_first_name || '') ||
 				soundexLastName !== (m.soundex_last_name || '') ||
 				nysiisLastName !== (m.nysiis_last_name || '') ||
@@ -2062,7 +2091,7 @@ async function normalizeMentions() {
 
 			if (needsUpdate) {
 				updates.push({
-					mention_id: m.mention_id,
+					...m,
 					norm_first_name: normFirstName,
 					soundex_last_name: soundexLastName,
 					nysiis_last_name: nysiisLastName,

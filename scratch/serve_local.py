@@ -5,7 +5,7 @@ import sys
 import json
 import datetime
 
-PORT = 8000
+PORT = 8080
 DIRECTORY = os.getcwd()
 ENV_PATH = os.path.join(os.path.dirname(__file__), '..', 'env', '.env')
 
@@ -129,16 +129,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
 def run():
-    try:
-        with socketserver.TCPServer(("", PORT), Handler) as httpd:
-            print(f"--- Local Web Server Started ---")
-            print(f"Serving files from: {DIRECTORY}")
-            print(f"Access your test page at: http://localhost:{PORT}/ops/testDBaccess.htm")
-            print(f"Token endpoint: http://localhost:{PORT}/api/token")
-            print(f"Press Ctrl+C to stop.")
-            httpd.serve_forever()
-    except Exception as e:
-        print(f"Error starting server: {e}")
+    import time
+    while True:
+        try:
+            with socketserver.ThreadingTCPServer(("", PORT), Handler) as httpd:
+                print(f"--- Local Web Server Started ---")
+                print(f"Serving files from: {DIRECTORY}")
+                print(f"Access your test page at: http://localhost:{PORT}/ops/testDBaccess.htm")
+                print(f"Token endpoint: http://localhost:{PORT}/api/token")
+                print(f"Press Ctrl+C to stop.")
+                httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("Stopping server...")
+            break
+        except Exception as e:
+            print(f"Error starting server: {e}. Restarting in 1 second...")
+            time.sleep(1)
 
 if __name__ == "__main__":
     # If a directory is passed as an argument, use it

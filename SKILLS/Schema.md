@@ -45,14 +45,12 @@ The following SQL commands define the schema for the various tables needed:
 		gender VARCHAR(1) CHECK (gender IN ('M','F','')),
 		occupation VARCHAR(100),
 		legal_status VARCHAR(100),
-		is_enslaver BOOLEAN,
 
 		norm_first_name VARCHAR(100),
 		nysiis_last_name VARCHAR(100), 
 		norm_race VARCHAR(1) CHECK (norm_race IN ('B','W','')),
 		norm_occupation VARCHAR(100),
 
-		location_id UUID REFERENCES locations(location_id),
 		head BOOLEAN,
 		household_id VARCHAR(50),	
 		family_id VARCHAR(50),
@@ -72,13 +70,11 @@ The following SQL commands define the schema for the various tables needed:
 		predicate VARCHAR(100) NOT NULL,
 		county VARCHAR(50),
 		object_id UUID REFERENCES mentions(mention_id),   -- when object is a mention
-		object_string VARCHAR(255),                       -- when object is a string
 		start_year SMALLINT,
 		end_year SMALLINT,
 		who VARCHAR(100),
 		confidence REAL CHECK (confidence BETWEEN 0 AND 1),
 		created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-		CHECK (object_id IS NOT NULL OR object_string IS NOT NULL)
 		);
 
 	CREATE TABLE persons (

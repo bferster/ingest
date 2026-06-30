@@ -34,15 +34,13 @@
 **Creating the mention_id**
 	- The county for this source is "ALB".
 	- The source type is "FG".
-	- The year is "1600	".
 	- The mention_id is created as follows:
-		- Each source has a unique prefix: for example: ALB-FG-1600-1, where  "ALB" is the county, "FG" is the source type, "1600" is the year and "1" is the line number from the line field in the row. 
-	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-FG-1600-1.1, ALB-FG-1600-1.2 for the second, etc.
+		- Each source has a unique prefix: for example: ALB-FG-1, where  "ALB" is the county, "FG" is the source type, "1" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-FG-1.1, ALB-FG-1.2 for the second, etc.
 
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
-	- The source field is set to "ALB_FindAGrave".
+	- The year is "1600	".
 	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.8 apply the normalization as described in @Normalize.md
-	- Get the location_id as described in @GetLocation.md using the location field.

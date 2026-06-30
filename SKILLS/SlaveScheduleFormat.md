@@ -35,20 +35,16 @@
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields	
-	- The source field is set to "ALB_SS-1850" or "ALB_SS-1860".
 	- The source_year field is set to 1850 or 1860.
 	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.82.	
 	- The legal_status field is set to "E"
 	- Apply the normalization as described in @Normalize.md.
-	- Get the location_id as described in @GetLocation.md using the location field.
 	- Add mention to mentions table.
 
 **Creating the mention_id**
 
 	- The county for this source is "ALB".
-	- The source type is "SS".
-	- The year is "1850 or 1860".
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-SS-1850-1, where  "ALB" is the county, "SS" is the source type, "1850" is the year and "1" is the line number from the line field in the row. 
 	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-SS-1850-1.1, ALB-SS-1850-1.2 for the second, etc.
@@ -59,11 +55,9 @@
 	- This occurs after all mentions for the enslaved people have been added to the mentions table.
 	- Add a mention for each unique enslaver {
 		- If the enslaver_full_name has already been added while ingesting this source, don't add this mention.
-		- The source field is set to "ALB_SS-1850" or "ALB_SS-1860"
 		- The source_year field is set to 1850 or 1860.
 		- The original_data field is set to the entire row as a JSONB object.
-		- Set the legal_status field is set to "".
-		- Set is_enslaver to TRUE
+		- Set the legal_status field is set to NULL
 		- The confidence field is set to 0.83.
 		- The first_name, middle_name, and last_name fields are set to parts of the enslaver_full_name field {
 			- Remove all punctuation from middle name.
@@ -73,7 +67,6 @@
 			- if the full_name has a jr or sr or or ii or iii or iv 2nd or 3rd or 4th or 5th, use the word before it as the last_name.	
 			}
 		- Apply the normalization as described in @Normalize.md.
-		- Get the location_id as described in @GetLocation.md using the location field.
 		- age, race, gender, and birth_year fields are ignored.
 		- Add mention to mentions table.
 	}
@@ -94,6 +87,5 @@
 			confidence: 0.8.
 			}
 	- Add assertion to assertions table.
-	- TODO: Lynn will add relationship assertions (confidence is .5).
 	}
 
