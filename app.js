@@ -1,4 +1,4 @@
-const POSTGREST_URL = '/pgrst';
+const POSTGREST_URL = '/api';
 const JWT_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYXV0aGVudGljYXRlZF91c2VyIiwiZXhwIjoxODA5MDMwNTQ0fQ.Odb66wuCHtVpGTT-ANI2Pgp5Cn9xEGndtSecu5boHzg';
 const API_HEADERS = {
 	'Content-Type': 'application/json',
@@ -58,7 +58,9 @@ function getMentionPrefix(format, county, sourceYear, row) {
 let idGenerator = new MentionIdGenerator();
 let householdMap = new Map();
 let familyMap = new Map();
+let sourceSelectListenerAdded = false;
 
+const countySelect = document.getElementById('county-select');
 const sourceSelect = document.getElementById('source-select');
 const processBtn = document.getElementById('process-btn');
 const limitCheckbox = document.getElementById('limit-checkbox');
@@ -108,6 +110,27 @@ function log(message, isError = false) {
 	}
 }
 
+function mapRace(str) {
+	if (!str) return null;
+	let r = String(str).trim().toUpperCase();
+	if (r.startsWith('N') || r.startsWith('B')) return 'B'; // Negro, Black
+	if (r.startsWith('M')) return 'M'; // Mulatto
+	if (r.startsWith('W') || r.startsWith('C')) return 'W'; // White, Cauc
+	if (r.startsWith('I')) return 'I'; // Indian
+	if (r.startsWith('Y')) return 'Y'; // Yellow
+	
+	r = r.charAt(0);
+	if (['B','M','W','C','I','Y'].includes(r)) return r;
+	return null;
+}
+
+function mapGender(str) {
+	if (!str) return null;
+	let g = String(str).trim().toUpperCase().charAt(0);
+	if (g === 'M' || g === 'F') return g;
+	return null;
+}
+
 // 1. Load sources.csv
 async function loadSources() {
 	try {
@@ -141,22 +164,37 @@ async function loadSources() {
 
 function populateSourceDropdown() {
 	sourceSelect.innerHTML = '<option value="">-- Select a source --</option>';
+	const selectedCounty = countySelect ? countySelect.value : null;
+
 	sourcesData.forEach((source, index) => {
-		if (source.display_name) {
+		if (source.display_name && (!selectedCounty || source.county === selectedCounty)) {
 			const option = document.createElement('option');
 			option.value = index;
 			option.textContent = source.display_name;
 			sourceSelect.appendChild(option);
 		}
 	});
-	sourceSelect.addEventListener('change', () => {
-		if (sourceSelect.value !== "") {
-			loadSourcePreview();
-		} else {
-			previewSection.classList.add('hidden');
-			progressSection.classList.add('hidden');
+
+	if (!sourceSelectListenerAdded) {
+		sourceSelect.addEventListener('change', () => {
+			if (sourceSelect.value !== "") {
+				loadSourcePreview();
+			} else {
+				previewSection.classList.add('hidden');
+				progressSection.classList.add('hidden');
+			}
+		});
+
+		if (countySelect) {
+			countySelect.addEventListener('change', () => {
+				populateSourceDropdown();
+				previewSection.classList.add('hidden');
+				progressSection.classList.add('hidden');
+			});
 		}
-	});
+
+		sourceSelectListenerAdded = true;
+	}
 }
 
 // 2. Load Preview
@@ -302,6 +340,22 @@ processBtn.addEventListener('click', async () => {
 
 				if (hId) householdMap.set(i, hId);
 				if (fId) familyMap.set(i, fId);
+			}
+		} else if (selectedSource.format.includes('SlaveSchedule')) {
+			let currentHouseholdId = null;
+			let householdCounter = 1;
+			let currentEnslaver = null;
+			for (let i = 0; i < currentCsvData.length; i++) {
+				const row = currentCsvData[i];
+				const isOwner = String(row.owner || row.Owner || row.status || row.Status || '').trim().toUpperCase() === 'Y' || String(row.status || row.Status || '').trim().toLowerCase() === 'owner';
+				if (isOwner) {
+					currentHouseholdId = `HS${selectedSource.year}-${householdCounter++}`;
+					currentEnslaver = [row.first_name || row.FirstName || '', row.middle_name || row.MiddleName || '', row.last_name || row.LastName || ''].filter(Boolean).join(' ').trim() || row.full_name || row.FullName || '';
+				}
+				if (currentHouseholdId) {
+					householdMap.set(i, currentHouseholdId);
+					row.enslaver_full_name = currentEnslaver;
+				}
 			}
 		}
 
@@ -472,12 +526,12 @@ async function prepareMention(row, rowIndex = -1) {
 		last_name: lastName,
 		birth_year: computedBirthYear,
 		death_year: isNaN(deathYear) ? null : deathYear,
-		race: (row.race || row.Race) ? String(row.race || row.Race).toUpperCase() : null,
-		gender: (row.gender || row.Gender || row.Sex) ? String(row.gender || row.Gender || row.Sex).toUpperCase() : null,
+		race: mapRace(row.race || row.Race),
+		gender: mapGender(row.gender || row.Gender || row.Sex),
 		occupation: rawOccupation,
 		norm_first_name: normFirstName,
 		nysiis_last_name: nysiisLastName,
-		norm_race: normRace,
+		norm_race: normRace ? normRace.substring(0, 1) : null,
 		norm_occupation: normOccupation,
 		head: String(row.head || row.Head || '').toUpperCase() === 'Y' || String(row.head || row.Head || '').toLowerCase() === 'TRUE',
 		legal_status: '', // Default
@@ -576,8 +630,19 @@ async function applyFormatSpecificRules(mention, row) {
 
 	// SlaveSchedule
 	if (format.includes('SlaveSchedule')) {
-		mention.legal_status = 'E';
-		mention.confidence = 0.82;
+		const isOwner = String(row.owner || row.Owner || row.status || row.Status || '').trim().toUpperCase() === 'Y' || String(row.status || row.Status || '').trim().toLowerCase() === 'owner';
+		if (isOwner) {
+			mention.legal_status = null;
+			mention.head = true;
+			mention.birth_year = null;
+			mention.death_year = null;
+			mention.race = 'W'; // Set enslaver's race to "W"
+			mention.norm_race = 'W';
+			mention.gender = null;
+		} else {
+			mention.legal_status = 'E';
+			mention.head = null;
+		}
 	}
 }
 
@@ -609,7 +674,7 @@ async function processPostHocMentions() {
 
 	while (true) {
 		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
-		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,original_data,source_year&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,original_data,source_year,legal_status&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 		if (!res.ok) {
 			throw new Error('Failed to fetch mentions for post-hoc processing');
 		}
@@ -753,56 +818,66 @@ async function processEnslaverMentions(mentions) {
 	const county = selectedSource.county || 'ALB';
 	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
-	// 1. Bulk check for existing enslavers
-	log(`Checking database for existing records for ${enslaverNames.length} enslavers...`);
-	const existingEnslavers = new Set();
+	// 3. Write assertions mapping enslaved to their enslaver
+	log('Fetching enslavers to write assertions...');
+	const enslaverMentionIds = new Map(); // full_name -> mention_id
+
 	for (let i = 0; i < enslaverNames.length; i += 100) {
 		const chunk = enslaverNames.slice(i, i + 100);
 		try {
-			const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${prefix}-*&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})&is_enslaver=is.true`, { headers: API_HEADERS });
+			const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${prefix}-*&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})`, { headers: API_HEADERS });
 			if (res.ok) {
 				const data = await res.json();
-				data.forEach(m => existingEnslavers.add(m.full_name));
+				data.forEach(m => {
+					// Store the first one we find for this name
+					if (!enslaverMentionIds.has(m.full_name)) {
+						enslaverMentionIds.set(m.full_name, m.mention_id);
+					}
+				});
 			}
 		} catch (err) {
-			log(`Bulk check failed for a chunk: ${err.message}`, true);
+			log(`Failed fetching enslavers for assertions: ${err.message}`, true);
 		}
 	}
 
-	const enslaversToCreate = [];
-	for (const [fullName, row] of enslavers) {
-		if (existingEnslavers.has(fullName)) continue;
+	const assertionsBatch = [];
+	let missingEnslavers = 0;
+	enslaved.forEach(m => {
+		const eName = getRowValue(m.original_data, 'enslaver_full_name');
+		if (eName && enslaverMentionIds.has(eName)) {
+			const eMentionId = enslaverMentionIds.get(eName);
+			assertionsBatch.push({
+				subject_id: m.mention_id,
+				predicate: 'wasEnslavedBy',
+				object_id: eMentionId,
+				who: 'SS',
+				start_year: parseInt(selectedSource.year),
+				confidence: currentConfidence
+			});
+		} else {
+			missingEnslavers++;
+		}
+	});
 
-		const { first, middle, last } = parseGeneralName(fullName);
-		const format = selectedSource.format || '';
-		const county = selectedSource.county || 'ALB';
-		const prefix = getMentionPrefix(format, county, selectedSource.year, row);
-	const line = getRowValue(row, 'line') || '';
-	const mId = idGenerator.generate(prefix, line);
+	if (missingEnslavers > 0) log(`Warning: Could not find enslavers for ${missingEnslavers} enslaved mentions.`, true);
 
-		enslaversToCreate.push({
-			mention_id: mId,
-		source: prefix,
-			source_year: parseInt(selectedSource.year),
-			original_data: row,
-			confidence: 0.83,
-			full_name: fullName,
-			first_name: first,
-			middle_name: middle,
-			last_name: last,
-			legal_status: '',
-			race: 'W',
-			norm_race: 'W',
-			norm_first_name: normalizeFirstName(first),
-			nysiis_last_name: simpleNysiis(last)
-		});
-	}
-
-	if (enslaversToCreate.length > 0) {
-		log(`Inserting ${enslaversToCreate.length} new enslaver mentions...`);
-		await insertBatch(enslaversToCreate);
-	} else {
-		log('All enslavers already exist in database.');
+	if (assertionsBatch.length > 0) {
+		log(`Inserting ${assertionsBatch.length} assertions...`);
+		for (let i = 0; i < assertionsBatch.length; i += 1000) {
+			const batch = assertionsBatch.slice(i, i + 1000);
+			const postRes = await fetch(`${POSTGREST_URL}/assertions`, {
+				method: 'POST',
+				headers: {
+					...API_HEADERS,
+					'Prefer': 'return=representation,resolution=merge-duplicates'
+				},
+				body: JSON.stringify(batch)
+			});
+			if (!postRes.ok) {
+				log(`Failed to insert assertions batch: ${await postRes.text()}`, true);
+			}
+		}
+		log('Finished writing assertions.');
 	}
 }
 

@@ -13,7 +13,13 @@
 		<h1>Verite Source Ingestor</h1>
 
 		<div class="controls">
-			<label for="source-select">Select Source to Ingest:</label>
+			<label for="county-select">County:</label>
+			<select id="county-select">
+				<option value="ALB">Albemarle</option>
+				<option value="AUG">Augusta</option>
+				<option value="FAQ">Fauquier</option>
+			</select>
+			<label for="source-select" style="margin-left: 10px;">Select Source to Ingest:</label>
 			<select id="source-select">
 				<option value="">-- Loading sources... --</option>
 			</select>
@@ -63,7 +69,7 @@
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 	<script src="assertionExpansion.js"></script>
 	<script src="contenderNarratives.js"></script>
-	<script src="app.js?v=2"></script>
+	<script src="app.js?v=6"></script>
 
 	<script>
 		function trace(a, b, c, d) { console.log(a, b, c, d) };
