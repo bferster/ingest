@@ -1,3 +1,8 @@
+---
+name: VitalRecordsFormat
+description: Format instructions for VitalRecordsFormat
+---
+
 **VITAL RECORDS FORMAT**
 
 	This file is a transcription vital records., such as birth, death, and marriage records.	

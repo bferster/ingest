@@ -1,3 +1,8 @@
+---
+name: ChurchFormat
+description: Format instructions for ChurchFormat
+---
+
 **FindAGrave FORMAT**
 
 	This file contains the churches people attended, from 1851 to 1880. 
@@ -159,8 +164,9 @@
 	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.8 apply the normalization as described in @Normalize.md
 	- Create mention_id as described below
+	
 **Creating the mention_id**
-	- The county for this source is "ALB".
+
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-CH-1, where  "ALB" is the county, "CH" is the source type, and "1" is the line number from the line field in the row. 
 	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CH-1.1, ALB-CH-1.2 for the second, etc.
@@ -195,7 +201,7 @@
 			who: ALB-CH, 
 			start_year: record_year.
 			end_year: null.	
-			confidence: 0.8.
+			confidence: 0.81.
 			}
 	- If the new assertion already exists in the database, skip it.
 	- Otherwise add new assertion to assertions table.

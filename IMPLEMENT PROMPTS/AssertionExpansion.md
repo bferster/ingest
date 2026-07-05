@@ -73,3 +73,12 @@
 
 	After all passes are complete, remove all duplicate assertions where the subject, object_id,  and predicate values are the same, and the who field is 'expanded'.
 
+
+
+
+Remove "expand assertion" from post-processing pulldown
+Add a new option for post-processing called "ingest all"
+when selected ingest all the sources for the current county in the order listed in the select-a sourc.
+
+
+

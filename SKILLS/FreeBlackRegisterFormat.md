@@ -1,3 +1,8 @@
+---
+name: FreeBlackRegisterFormat
+description: Format instructions for FreeBlackRegisterFormat
+---
+
 **FREE BLACK REGISTER FORMAT**
 
 	This file is a transcription of the Free black register.
@@ -44,7 +49,6 @@
 
 **Creating the mention_id**
 
-	- The county for this source is "ALB"
 	- The source type is "FBR"
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-FBR-1, where  "ALB" is the county, "FBR" is the source type, and "1" is the line number from the line field in the row. 

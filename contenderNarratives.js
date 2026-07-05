@@ -48,7 +48,7 @@ async function ContenderNarratives() {
 		let offset = 0;
 		const limit = 2000;
 		while (true) {
-			const res = await fetch(`${POSTGREST_URL}/mentions?select=mention_id,source_year,full_name,first_name,norm_first_name,last_name,nysiis_last_name,race,gender,birth_year,death_year,occupation,norm_occupation,maiden_name,household_id,family_id,source,county&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+			const res = await fetch(`${POSTGREST_URL}/mentions?select=mention_id,source_year,full_name,first_name,norm_first_name,last_name,nysiis_last_name,race,gender,birth_year,death_year,occupation,norm_occupation,household_id,family_id,source&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 			if (!res.ok) throw new Error('Failed to fetch mentions');
 			const data = await res.json();
 			if (data.length === 0) break;
@@ -63,13 +63,16 @@ async function ContenderNarratives() {
 
 		const { firstNameFreq, lastNameFreq } = buildNameFrequencies(allMentions);
 		const mentionMap = new Map();
-		allMentions.forEach(m => mentionMap.set(m.mention_id, m));
+		allMentions.forEach(m => {
+			m.county = m.mention_id.split('-')[0];
+			mentionMap.set(m.mention_id, m);
+		});
 
 		log('Fetching assertions from database...');
 		let allAssertions = [];
 		offset = 0;
 		while (true) {
-			const res = await fetch(`${POSTGREST_URL}/assertions?select=subject_id,predicate,object_id,object_string,county,start_year,end_year,confidence&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+			const res = await fetch(`${POSTGREST_URL}/assertions?select=subject_id,predicate,object_id,county,start_year,end_year,confidence&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 			if (!res.ok) throw new Error('Failed to fetch assertions');
 			const data = await res.json();
 			if (data.length === 0) break;
@@ -229,7 +232,7 @@ async function ContenderNarratives() {
 			for (const a of assertions) {
 				if (a.predicate === 'isSameAs') continue;
 
-				let objectName = a.object_string;
+				let objectName = '';
 				if (a.object_id && mentionMap.has(a.object_id)) {
 					const objMention = mentionMap.get(a.object_id);
 					const fn = objMention.norm_first_name || '';

@@ -66,7 +66,6 @@ description: Format instructions for 1880CensusFormat
 	- Add mention to mentions table
 
 **Creating the mention_id**
-
 	- The county for this source is "ALB".
 	- The source type is "CN".
 	- The mention_id is created as follows:

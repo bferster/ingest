@@ -1,3 +1,8 @@
+---
+name: FreedmansListFormat
+description: Format instructions for FreedmansListFormat
+---
+
 **FREEDMAN'S LIST FORMAT**
 
 	This file is a transcription of the people listed in th Freesman's List from 1865 to 1872
@@ -37,6 +42,7 @@
 	| 10   | Betty Pendleton     | Betty      |             | Pendleton | 1866        | Charlottesville |
 
 **Creating the mention_id**
+
 	- The county for this source is "ALB"
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-FL-1, where  "ALB" is the county, "FL" is the source type, and "1" is the line number from the line field in the row. 

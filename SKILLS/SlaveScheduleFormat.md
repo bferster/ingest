@@ -1,3 +1,8 @@
+---
+name: SlaveScheduleFormat
+description: Format instructions for SlaveScheduleFormat
+---
+
 
 **SLAVE SCHEDULE FORMAT**
 

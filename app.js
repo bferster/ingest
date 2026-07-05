@@ -9,6 +9,7 @@ let currentCsvData = [];
 let selectedSource = null;
 let currentConfidence = 1.0;
 let stopIngestion = false;
+let isIngestAllMode = false;
 
 class MentionIdGenerator {
 	constructor() {
@@ -178,6 +179,7 @@ function populateSourceDropdown() {
 	if (!sourceSelectListenerAdded) {
 		sourceSelect.addEventListener('change', () => {
 			if (sourceSelect.value !== "") {
+				isIngestAllMode = false;
 				loadSourcePreview();
 			} else {
 				previewSection.classList.add('hidden');
@@ -225,38 +227,8 @@ async function loadSourcePreview() {
 			log(`Successfully parsed ${currentCsvData.length} rows.`);
 			showPreview();
 
-			// Try to fetch confidence from the format .md file
-			let formatFileName = selectedSource.format;
-			// The CSV might say '1870Census.md' instead of '1870CensusFormat.md'
-			if (formatFileName && !formatFileName.includes('Format')) {
-				formatFileName = formatFileName.replace('.md', 'Format.md');
-			}
-			if (!formatFileName) {
-				// Try guessing from display_name
-				formatFileName = selectedSource.display_name.replace(/\s+/g, '') + 'Format.md';
-			}
-
-			try {
-				// Add cache buster to bypass browser caching of .md files
-				const mdRes = await fetch(`SKILLS/${formatFileName}?${new Date().getTime()}`);
-				if (mdRes.ok) {
-					const mdText = await mdRes.text();
-					const match = mdText.match(/confidence field is set to\s*([0-9.]+)/i);
-					if (match && match[1]) {
-						currentConfidence = parseFloat(match[1]);
-						log(`Parsed confidence ${currentConfidence} from ${formatFileName}.`);
-					} else {
-						currentConfidence = 1.0;
-						log(`No confidence specified in ${formatFileName}, defaulting to 1.0.`);
-					}
-				} else {
-					currentConfidence = 1.0;
-					log(`Format file ${formatFileName} not found, defaulting confidence to 1.0.`);
-				}
-			} catch (e) {
-				currentConfidence = 1.0;
-				log(`Error reading format file, defaulting confidence to 1.0.`);
-			}
+			currentConfidence = await getConfidenceForSource(selectedSource);
+			log(`Set confidence ${currentConfidence} for ${selectedSource.display_name}.`);
 		},
 		error: function (err) {
 			log(`Error parsing CSV: ${err}`, true);
@@ -306,125 +278,19 @@ processBtn.addEventListener('click', async () => {
 	progressSection.classList.remove('hidden');
 	stopIngestion = false;
 
-	// Reset ID generator for the current source run
-	idGenerator = new MentionIdGenerator();
-
 	try {
-		// Pre-calculate household and family IDs (Census formats carry-forward logic)
-		householdMap.clear();
-		familyMap.clear();
-		if (selectedSource.format.includes('Census')) {
-			let lastDwelling = null;
-			let lastFamily = null;
-			for (let i = 0; i < currentCsvData.length; i++) {
-				const row = currentCsvData[i];
-				let rawDwelling = getRowValue(row, 'dwelling');
-				let rawFamily = getRowValue(row, 'family');
-
-				if (rawDwelling !== null && rawDwelling !== undefined && String(rawDwelling).trim() !== '') {
-					lastDwelling = String(rawDwelling).trim();
-					rawDwelling = lastDwelling;
-				} else {
-					rawDwelling = lastDwelling;
-				}
-
-				if (rawFamily !== null && rawFamily !== undefined && String(rawFamily).trim() !== '') {
-					lastFamily = String(rawFamily).trim();
-					rawFamily = lastFamily;
-				} else {
-					rawFamily = lastFamily;
-				}
-
-				const hId = rawDwelling ? `HC${selectedSource.year}-${rawDwelling}` : null;
-				const fId = rawFamily ? `FC${selectedSource.year}-${rawFamily}` : null;
-
-				if (hId) householdMap.set(i, hId);
-				if (fId) familyMap.set(i, fId);
-			}
-		} else if (selectedSource.format.includes('SlaveSchedule')) {
-			let currentHouseholdId = null;
-			let householdCounter = 1;
-			let currentEnslaver = null;
-			for (let i = 0; i < currentCsvData.length; i++) {
-				const row = currentCsvData[i];
-				const isOwner = String(row.owner || row.Owner || row.status || row.Status || '').trim().toUpperCase() === 'Y' || String(row.status || row.Status || '').trim().toLowerCase() === 'owner';
-				if (isOwner) {
-					currentHouseholdId = `HS${selectedSource.year}-${householdCounter++}`;
-					currentEnslaver = [row.first_name || row.FirstName || '', row.middle_name || row.MiddleName || '', row.last_name || row.LastName || ''].filter(Boolean).join(' ').trim() || row.full_name || row.FullName || '';
-				}
-				if (currentHouseholdId) {
-					householdMap.set(i, currentHouseholdId);
-					row.enslaver_full_name = currentEnslaver;
-				}
-			}
-		}
-
-		const useLimit = limitCheckbox.checked;
-		const totalRows = useLimit ? Math.min(50, currentCsvData.length) : currentCsvData.length;
-		let processedRows = 0;
-
-		log(`Starting ingestion of ${totalRows} rows${useLimit ? ' (Limited to 50)' : ''}...`);
-		const startTime = Date.now();
-
-		// Fast deduplication check removed as per instructions
-		const dbSource = await getDatabaseSource(selectedSource);
-	const format = selectedSource.format || '';
-	const county = selectedSource.county || 'ALB';
-	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
-
-		const BATCH_SIZE = 1000;
-		let batch = [];
-
-		for (let i = 0; i < totalRows; i++) {
-			if (stopIngestion) {
-				log(`Ingestion stopped by user at row ${i}.`);
-				break;
-			}
-
-			const row = currentCsvData[i];
-			const originalDataStr = JSON.stringify(row);
-
-			// Duplicate check removed as per instructions
-
-			try {
-				const mention = await prepareMention(row, i);
-				batch.push(mention);
-
-				if (batch.length >= BATCH_SIZE || i === totalRows - 1) {
-					await insertBatch(batch);
-					processedRows += batch.length;
-					batch = [];
-					updateProgress(processedRows, totalRows, startTime);
-				}
-			} catch (err) {
-				log(`Error processing batch near row ${i + 1}: ${err.message}`, true);
-			}
-		}
-
-		// Final progress update if needed
-		updateProgress(processedRows, totalRows, startTime);
-		log(`Finished row ingestion.`);
-
-		// Post-hoc Mentions and Assertions
-		if (stopIngestion) {
-			log('Ingestion stopped by user. Finalizing processed rows...');
+		if (isIngestAllMode) {
+			await ingestAllSources();
 		} else {
-			log('Ingestion complete. Starting post-hoc processing...');
+			await ingestSingleSource(selectedSource, currentCsvData, limitCheckbox.checked);
 		}
-
-		try {
-			await processPostHocMentions();
-			await processPostHocAssertions();
-		} catch (err) {
-			log(`Failed post-hoc processing: ${err.message}`, true);
-		}
-
 		log(`Ingestion batch complete.`);
 	} catch (globalErr) {
 		log(`Fatal Ingestion Error: ${globalErr.message}`, true);
 	} finally {
 		processBtn.disabled = false;
 		stopBtn.disabled = true;
+		isIngestAllMode = false; // Reset mode after completion
 	}
 });
 
@@ -531,6 +397,7 @@ async function prepareMention(row, rowIndex = -1) {
 		occupation: rawOccupation,
 		norm_first_name: normFirstName,
 		nysiis_last_name: nysiisLastName,
+		soundex_last_name: soundex(lastName),
 		norm_race: normRace ? normRace.substring(0, 1) : null,
 		norm_occupation: normOccupation,
 		head: String(row.head || row.Head || '').toUpperCase() === 'Y' || String(row.head || row.Head || '').toLowerCase() === 'TRUE',
@@ -559,6 +426,9 @@ async function applyFormatSpecificRules(mention, row) {
 	// Census Formats (1870, 1880)
 	if (format.includes('Census')) {
 		mention.legal_status = 'F';
+		if (format.includes('1880') || (selectedSource && String(selectedSource.year) === '1880')) {
+			mention.household_id = null;
+		}
 	}
 
 	// FreeBlackRegister
@@ -1077,7 +947,7 @@ async function processPostHocAssertions() {
 
 	while (true) {
 		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
-		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,original_data,source_year&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,original_data,source_year,family_id,household_id,legal_status,head&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 		if (!res.ok) {
 			throw new Error('Failed to fetch mentions for assertions');
 		}
@@ -1413,7 +1283,7 @@ async function processSlaveScheduleAssertions(mentions) {
 	log('Creating wasEnslavedBy assertions for Slave Schedule...');
 
 	const enslaved = mentions.filter(m => m.legal_status === 'E');
-	const enslavers = mentions.filter(m => m.is_enslaver === true);
+	const enslavers = mentions.filter(m => m.head === true || m.is_enslaver === true);
 
 	const enslaverMap = new Map(); // full_name -> mention_id
 	enslavers.forEach(e => {
@@ -2111,12 +1981,23 @@ actionSelect.addEventListener('change', async (e) => {
 			return;
 		}
 		await ContenderNarratives();
-	} else if (action === 'normalize_mentions') {
-		if (!confirm('Are you sure you want to normalize all mentions fields?')) {
-			actionSelect.value = '';
-			return;
+	} else if (action === 'ingest_all') {
+		isIngestAllMode = true;
+		log('Ingest all sources action selected. Loading first source preview...');
+		const selectedCounty = countySelect ? countySelect.value : null;
+		const countySources = sourcesData.filter(source => source.display_name && (!selectedCounty || source.county === selectedCounty));
+		if (countySources.length > 0) {
+			const firstSource = countySources[0];
+			const globalIndex = sourcesData.findIndex(s => s.display_name === firstSource.display_name);
+			if (globalIndex !== -1 && sourceSelect) {
+				sourceSelect.value = globalIndex;
+				try {
+					await loadSourcePreview();
+				} catch (err) {
+					log(`Warning: Failed to load preview for first source: ${err.message}`, true);
+				}
+			}
 		}
-		await normalizeMentions();
 	}
 
 	actionSelect.value = '';
@@ -2205,6 +2086,212 @@ async function normalizeMentions() {
 		log(`Normalization failed: ${err.message}`, true);
 	} finally {
 		if (typeof actionSelect !== 'undefined') actionSelect.disabled = false;
+	}
+}
+
+async function getConfidenceForSource(source) {
+	let formatFileName = source.format;
+	if (formatFileName && !formatFileName.includes('Format')) {
+		formatFileName = formatFileName.replace('.md', 'Format.md');
+	}
+	if (!formatFileName) {
+		formatFileName = source.display_name.replace(/\s+/g, '') + 'Format.md';
+	}
+	try {
+		const mdRes = await fetch(`SKILLS/${formatFileName}?${new Date().getTime()}`);
+		if (mdRes.ok) {
+			const mdText = await mdRes.text();
+			const match = mdText.match(/confidence field is set to\s*([0-9.]+)/i);
+			if (match && match[1]) {
+				return parseFloat(match[1]);
+			}
+		}
+	} catch (e) {
+		log(`Error reading format file: ${e.message}`, true);
+	}
+	return 1.0;
+}
+
+function parseCsv(url) {
+	return new Promise((resolve, reject) => {
+		Papa.parse(url, {
+			download: true,
+			header: true,
+			skipEmptyLines: true,
+			transformHeader: h => h.trim(),
+			transform: (value) => {
+				let val = value.trim();
+				if (val.startsWith('"') && val.endsWith('"')) {
+					val = val.slice(1, -1);
+				}
+				return val;
+			},
+			complete: function (results) {
+				resolve(results.data);
+			},
+			error: function (err) {
+				reject(err);
+			}
+		});
+	});
+}
+
+async function ingestSingleSource(source, csvData, useLimit) {
+	selectedSource = source;
+	currentCsvData = csvData;
+	currentConfidence = await getConfidenceForSource(source);
+
+	idGenerator = new MentionIdGenerator();
+	householdMap.clear();
+	familyMap.clear();
+
+	if (selectedSource.format.includes('Census')) {
+		let lastDwelling = null;
+		let lastFamily = null;
+		for (let i = 0; i < currentCsvData.length; i++) {
+			const row = currentCsvData[i];
+			let rawDwelling = getRowValue(row, 'dwelling');
+			let rawFamily = getRowValue(row, 'family');
+
+			if (rawDwelling !== null && rawDwelling !== undefined && String(rawDwelling).trim() !== '') {
+				lastDwelling = String(rawDwelling).trim();
+				rawDwelling = lastDwelling;
+			} else {
+				rawDwelling = lastDwelling;
+			}
+
+			if (rawFamily !== null && rawFamily !== undefined && String(rawFamily).trim() !== '') {
+				lastFamily = String(rawFamily).trim();
+				rawFamily = lastFamily;
+			} else {
+				rawFamily = lastFamily;
+			}
+
+			const hId = rawDwelling ? `HC${selectedSource.year}-${rawDwelling}` : null;
+			const fId = rawFamily ? `FC${selectedSource.year}-${rawFamily}` : null;
+
+			if (hId) householdMap.set(i, hId);
+			if (fId) familyMap.set(i, fId);
+		}
+	} else if (selectedSource.format.includes('SlaveSchedule')) {
+		let currentHouseholdId = null;
+		let householdCounter = 1;
+		let currentEnslaver = null;
+		for (let i = 0; i < currentCsvData.length; i++) {
+			const row = currentCsvData[i];
+			const isOwner = String(row.owner || row.Owner || row.status || row.Status || '').trim().toUpperCase() === 'Y' || String(row.status || row.Status || '').trim().toLowerCase() === 'owner';
+			if (isOwner) {
+				currentHouseholdId = `HS${selectedSource.year}-${householdCounter++}`;
+				currentEnslaver = [row.first_name || row.FirstName || '', row.middle_name || row.MiddleName || '', row.last_name || row.LastName || ''].filter(Boolean).join(' ').trim() || row.full_name || row.FullName || '';
+			}
+			if (currentHouseholdId) {
+				householdMap.set(i, currentHouseholdId);
+				row.enslaver_full_name = currentEnslaver;
+			}
+		}
+	}
+
+	const totalRows = useLimit ? Math.min(50, currentCsvData.length) : currentCsvData.length;
+	let processedRows = 0;
+
+	log(`Ingesting ${totalRows} rows from ${source.display_name}...`);
+	const startTime = Date.now();
+
+	const BATCH_SIZE = 1000;
+	let batch = [];
+
+	for (let i = 0; i < totalRows; i++) {
+		if (stopIngestion) {
+			log(`Ingestion stopped by user at row ${i}.`);
+			break;
+		}
+
+		const row = currentCsvData[i];
+		try {
+			const mention = await prepareMention(row, i);
+			batch.push(mention);
+
+			if (batch.length >= BATCH_SIZE || i === totalRows - 1) {
+				await insertBatch(batch);
+				processedRows += batch.length;
+				batch = [];
+				updateProgress(processedRows, totalRows, startTime);
+			}
+		} catch (err) {
+			log(`Error processing batch near row ${i + 1}: ${err.message}`, true);
+		}
+	}
+
+	updateProgress(processedRows, totalRows, startTime);
+	log(`Finished row ingestion for ${source.display_name}.`);
+
+	if (!stopIngestion) {
+		try {
+			await processPostHocMentions();
+			await processPostHocAssertions();
+		} catch (err) {
+			log(`Failed post-hoc processing for ${source.display_name}: ${err.message}`, true);
+		}
+	}
+}
+
+async function ingestAllSources() {
+	if (typeof actionSelect !== 'undefined') actionSelect.disabled = true;
+	if (typeof progressSection !== 'undefined') progressSection.classList.remove('hidden');
+	stopIngestion = false;
+	
+	try {
+		log('Truncating assertions table...');
+		const resAssert = await fetch(`${POSTGREST_URL}/assertions?assertion_id=not.is.null`, {
+			method: 'DELETE',
+			headers: API_HEADERS
+		});
+		if (!resAssert.ok) throw new Error('Failed to truncate assertions table');
+
+
+		log('Truncating mentions table...');
+		const resMention = await fetch(`${POSTGREST_URL}/mentions?mention_id=not.is.null`, {
+			method: 'DELETE',
+			headers: API_HEADERS
+		});
+		if (!resMention.ok) throw new Error('Failed to truncate mentions table');
+
+		log('Tables successfully truncated.');
+
+		const selectedCounty = countySelect ? countySelect.value : null;
+		const countySources = sourcesData.filter(source => source.display_name && (!selectedCounty || source.county === selectedCounty));
+		
+		log(`Found ${countySources.length} sources to ingest for county ${selectedCounty}.`);
+
+		const useLimit = limitCheckbox ? limitCheckbox.checked : false;
+
+		for (let idx = 0; idx < countySources.length; idx++) {
+			if (stopIngestion) {
+				log('Ingestion of all sources stopped by user.');
+				break;
+			}
+			const source = countySources[idx];
+			log(`--------------------------------------------------`);
+			log(`Ingesting source ${idx + 1} of ${countySources.length}: ${source.display_name}`);
+			
+			try {
+				const csvData = await parseCsv(source.url);
+				await ingestSingleSource(source, csvData, useLimit);
+			} catch (err) {
+				log(`Failed to ingest source ${source.display_name}: ${err.message}`, true);
+			}
+		}
+
+		if (!stopIngestion) {
+			log(`All sources ingested successfully.`);
+		}
+	} catch (err) {
+		log(`Fatal error during ingest all: ${err.message}`, true);
+	} finally {
+		if (typeof actionSelect !== 'undefined') {
+			actionSelect.disabled = false;
+			actionSelect.value = '';
+		}
 	}
 }
 
