@@ -8,7 +8,7 @@ description: Format instructions for SlaveScheduleFormat
 
 	This file is a transcription of the US slave schedules for 1850 and 1860. 
 	It is a table with 10 columns. 
-	Each row represents an enslaved person or an enslaver.
+	Each row represents an enslaved person or an enslaver, as noted in the status field.	
 	There may be omissions, duplications, and errors in this data. 
 	Some fields may be not be present in table.
 
@@ -39,72 +39,45 @@ description: Format instructions for SlaveScheduleFormat
 	|  7  |            | 0  | 1850      | M     | B   |       |
 	|  8  |            | 40 | 1810      | M     | B   |       |
 
-
-**Output field names and descriptions:**
-
-	- line - A unique identifier for the row
-	- full_name - The combination of the first-name, the middle_name, and the last_name separated by spaces 
-	- age - The age of the person in year of the scheduleL 1850 or 1860
-	- birth_year - The year the person was born.
-	- gender - The sex of the person. Can be F for female or M for male
-	- race - The race of the person: B, W, M, I, C or Y
-
 **Translation instructions**
 
 	- The source_year field is set to 1850 or 1860.
-	- Source is set to county-SS-source_year (i.e ALB-SS-1880)
+	- Source is set to county-SS-source_year (i.e ALB-SS-1860)
 	- The original_data field is set to the entire row as a JSONB object.
-	- The confidence field is set to 0.83 for both assertions and mentions.	
+	- The confidence field is set to 0.9.	
 	- Apply the normalization as described in @Normalize.md.
-	- Add mention to mentions table.
 
+**For each row in source**
+
+	- Each row in source lists a person.
+	= if the the status field is "Owner" use the **Add enslaver mention** procedure.
+	= Otherwise use the **Add enslaved mention* procedure.
+	
 **Creating the mention_id**
 
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-SS-1850-1, where  "ALB" is the county, "SS" is the source type, "1850" is the year and "1" is the line number from the line field in the row. 
-	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-SS-1850-1.1, ALB-SS-1850-1.2 for the second, etc.
 
-**Add enslaver mentions**
+**Add enslaver mention**
 
-	- Add a mention for each row where the status field is "Owner":
-		- If the enslaver_full_name has already been added while ingesting this source, don't add this mention.
-		- age, race, gender, and birth_year fields are ignored.
-		- head is set to true.
-		- race is set to "W".
-		- Set the legal_status field is set to NULL.
-			- The first_name, middle_name, and last_name fields are set, if there.
-		- Add mention to mentions table.
+	- age, race, gender, and birth_year fields are ignored.
+	- head is set to true.
+	- race is set to "W".
+	- norm_race is set to "W"
+	- Set the legal_status field is set to NULL.
+	- The first_name, middle_name, and last_name fields are set, if there.
+	- Create a household_id: "HS"+source_year+#, where # is the sequential number of the household mention, starting at 1. (i.e HS1850-4546)
+	- Add mention to mentions table.
+	- Set household_id in mention record and save in last_household_id variable
 	
-**Add enslaved persons mentions**
+**Add enslaved mentions**
 
-	- This occurs after all mentions for the enslaved people have been added to the mentions table.
-		- Add a mention for each row where the status field is not "Owner":
-			- The source_year field is set to 1850 or 1860.
-			- Set the legal_status field is set to "E".
-			- head is set to NULL.
-			- Normalize race and gender according to @Normalize.md.
-			- Set age, race, gender, and birth_year fields.
-			- Add mention to mentions table.
-
-**Add assertions**
-
-	- This occurs after all mentions have been added to the mentions table.
-	- Make a look-up table of names from the enslaver_full_name field and the enslaver's mention_id
-	- For each enslaved mention {
-		- Use the enslaver_full_name field to find the enslaver's mention_id from the look-up table.
-		- Create assertion row data:
-			- subject: enslaved person's mention_id.
-			- predicate: wasEnslavedBy.
-			- object: enslaver's mention_id.
-			- who: "SS", 
-			- start_year: 1850 or 1860.
-			- end_year: NULL.	
-		- Add assertion to assertions table.
-	}
-
-**Add household ID**
-
-	- This occurs after all mentions have been added to the mentions table.
-	- For each enslaver mention created, create a household_id as follows:
-		- "HS"+source_year+#, where # is the sequential number of the household mention, starting at 1. (i.e HS1850-4546)
-	- Then, for every mention, add the appropriate household_id  to the household_id field in the mentions table.
+	- Set the legal_status field is set to "E".
+	- head is set to NULL.
+	- race is set to "B"
+	- norm_race is set to "B"
+	- Normalize race and gender according to @Normalize.md.
+	- The first_name, middle_name, and last_name fields are set, if there.
+	- Set age, race, gender, and birth_year fields.
+	- Set household_id in mention record to last_household_id
+	- Add mention to mentions table.

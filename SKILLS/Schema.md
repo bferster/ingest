@@ -55,8 +55,7 @@ The following SQL commands define the schema for the various tables needed:
 		household_id VARCHAR(50),	
 		family_id VARCHAR(50),
 		narrative VARCHAR(255),
-		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-		);
+\		);
 
 	ALTER TABLE locations 
 		ADD CONSTRAINT fk_owner FOREIGN KEY (owner_mention_id) 
@@ -74,8 +73,7 @@ The following SQL commands define the schema for the various tables needed:
 		end_year SMALLINT,
 		who VARCHAR(100),
 		confidence REAL CHECK (confidence BETWEEN 0 AND 1),
-		created TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-		);
+\		);
 
 	CREATE TABLE persons (
 		person_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -94,8 +92,7 @@ The following SQL commands define the schema for the various tables needed:
 		has_pre_wall_link BOOLEAN DEFAULT FALSE,
 		wall_pierce_confidence REAL,
 		confidence REAL CHECK (confidence BETWEEN 0 AND 1),
-		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-		);
+\		);
 
 	CREATE TABLE hypotheses (
 		hypothesis_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

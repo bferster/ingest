@@ -162,46 +162,52 @@ description: Format instructions for ChurchFormat
 
 	- Most of the fields in file match the same as the mentions' fields.	
 	- The original_data field is set to the entire row as a JSONB object.
-	- The confidence field is set to 0.8 apply the normalization as described in @Normalize.md
+	- The confidence field is set to 0.85 apply the normalization as described in @Normalize.md
+	- The source_year field is set to the value of the record_year field.
 	- Create mention_id as described below
+
+**For each row in source**
+
+	- Each row in source lists an enslaved person.
+	- Many rows have the same full_enslaver_name. 
+	- This first time a new full_enslaver_name is encountered, add the person as a mention as described in **Add enslaver mention**
 	
 **Creating the mention_id**
 
 	- The mention_id is created as follows:
-		- Each source has a unique prefix: for example: ALB-CH-1, where  "ALB" is the county, "CH" is the source type, and "1" is the line number from the line field in the row. 
-	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CH-1.1, ALB-CH-1.2 for the second, etc.
+	- Each source has a unique prefix: for example: ALB-CH-1, where  "ALB" is the county, "CH" is the source type, and "1" is the line number from the line field in the row. 
 
-**Add enslaver mentions**
+**Add enslaved mention**
 
-	- This occurs after all mentions for the enslaved people have been added to the mentions table.
-	- Add a mention for each unique enslaver {
-		- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CH-1.1, ALB-CH-1.2 for the second, etc.
-		- The source_year field is set to the value of the record_year field.
-		- The original_data field is set to the entire row as a JSONB object.
-		- Set the legal_status field is set to ""
-		- Set race to "W".
-		- The confidence field is set to 0.85.
+	- Set the legal_status field is set to "E"
+	- Set race to "B".
+	- Add age, race, gender, and birth_year and name fields
+	- Add mention to mentions table.
+
+**Add enslaver mention**		
+		
+		- Add .1 to the mention_id (i.e. ALB-CH-1234 becomes ALB-CH-1234.1)
 		- Set the full_name from the enslaver_full_name 
+		- Set the first_name from the enslaver_first_name 
 		- Set the middle_name from the enslaver_middle_name.
 		- Set the last_name from the enslaver_last_name.
+		- Set race to "W".
 		- Apply the normalization as described in @Normalize.md.
 		- age, race, gender, and birth_year fields are ignored.
 		- Add mention to mentions table.
-	}
 
 **Add assertions**
 
-	- This occurs after all enslaver mentions have been added to the mentions table.
-	-	- For each enslaved person mention added this ingest {
-		- Get their enslaver's mention_id.
+	- This occurs after all mentions have been added to the mentions table.
+	- For each mention with a legal_status of enslaver_full_name is not NULL {
 		- Create assertion row data {
-			subject: enslaved person's mention_id.
+			subject: mention_id.
 			predicate: wasEnslavedBy
-			object: enslaver's mention_id.
+			object: mention_id. +".1"
 			who: ALB-CH, 
 			start_year: record_year.
 			end_year: null.	
-			confidence: 0.81.
+			confidence: 0.85.
 			}
 	- If the new assertion already exists in the database, skip it.
 	- Otherwise add new assertion to assertions table.

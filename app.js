@@ -495,7 +495,10 @@ async function applyFormatSpecificRules(mention, row) {
 
 	// Church
 	if (format.includes('Church')) {
-		mention.confidence = 0.8;
+		mention.confidence = 0.85;
+		mention.legal_status = 'E';
+		mention.race = 'B';
+		mention.norm_race = 'B';
 	}
 
 	// SlaveSchedule
@@ -512,6 +515,8 @@ async function applyFormatSpecificRules(mention, row) {
 		} else {
 			mention.legal_status = 'E';
 			mention.head = null;
+			mention.race = 'B';
+			mention.norm_race = 'B';
 		}
 	}
 }
@@ -544,7 +549,7 @@ async function processPostHocMentions() {
 
 	while (true) {
 		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
-		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,original_data,source_year,legal_status&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,source,full_name,gender,original_data,source_year,legal_status&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 		if (!res.ok) {
 			throw new Error('Failed to fetch mentions for post-hoc processing');
 		}
@@ -558,7 +563,7 @@ async function processPostHocMentions() {
 	const mentions = allMentions;
 
 	if (selectedSource.format.includes('SlaveSchedule')) {
-		await processEnslaverMentions(mentions);
+		log('Slave Schedule format specifies no assertions. Skipping assertion creation.');
 		return;
 	}
 
@@ -664,148 +669,58 @@ async function processPostHocMentions() {
 	}
 }
 
-async function processEnslaverMentions(mentions) {
-	log('Processing Enslaver Mentions for Slave Schedule...');
 
-	const enslaved = mentions.filter(m => m.legal_status === 'E');
-	const enslavers = new Map(); // name -> original_row
-
-	enslaved.forEach(m => {
-		const name = getRowValue(m.original_data, 'enslaver_full_name');
-		if (name && !enslavers.has(name)) {
-			enslavers.set(name, m.original_data);
-		}
-	});
-
-	log(`Found ${enslavers.size} unique enslavers in processed data.`);
-	let processed = 0;
-	const total = enslavers.size;
-	const startTime = Date.now();
-
-	const enslaverNames = Array.from(enslavers.keys());
-	const dbSource = await getDatabaseSource(selectedSource);
-	const format = selectedSource.format || '';
-	const county = selectedSource.county || 'ALB';
-	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
-
-	// 3. Write assertions mapping enslaved to their enslaver
-	log('Fetching enslavers to write assertions...');
-	const enslaverMentionIds = new Map(); // full_name -> mention_id
-
-	for (let i = 0; i < enslaverNames.length; i += 100) {
-		const chunk = enslaverNames.slice(i, i + 100);
-		try {
-			const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${prefix}-*&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})`, { headers: API_HEADERS });
-			if (res.ok) {
-				const data = await res.json();
-				data.forEach(m => {
-					// Store the first one we find for this name
-					if (!enslaverMentionIds.has(m.full_name)) {
-						enslaverMentionIds.set(m.full_name, m.mention_id);
-					}
-				});
-			}
-		} catch (err) {
-			log(`Failed fetching enslavers for assertions: ${err.message}`, true);
-		}
-	}
-
-	const assertionsBatch = [];
-	let missingEnslavers = 0;
-	enslaved.forEach(m => {
-		const eName = getRowValue(m.original_data, 'enslaver_full_name');
-		if (eName && enslaverMentionIds.has(eName)) {
-			const eMentionId = enslaverMentionIds.get(eName);
-			assertionsBatch.push({
-				subject_id: m.mention_id,
-				predicate: 'wasEnslavedBy',
-				object_id: eMentionId,
-				who: 'SS',
-				start_year: parseInt(selectedSource.year),
-				confidence: currentConfidence
-			});
-		} else {
-			missingEnslavers++;
-		}
-	});
-
-	if (missingEnslavers > 0) log(`Warning: Could not find enslavers for ${missingEnslavers} enslaved mentions.`, true);
-
-	if (assertionsBatch.length > 0) {
-		log(`Inserting ${assertionsBatch.length} assertions...`);
-		for (let i = 0; i < assertionsBatch.length; i += 1000) {
-			const batch = assertionsBatch.slice(i, i + 1000);
-			const postRes = await fetch(`${POSTGREST_URL}/assertions`, {
-				method: 'POST',
-				headers: {
-					...API_HEADERS,
-					'Prefer': 'return=representation,resolution=merge-duplicates'
-				},
-				body: JSON.stringify(batch)
-			});
-			if (!postRes.ok) {
-				log(`Failed to insert assertions batch: ${await postRes.text()}`, true);
-			}
-		}
-		log('Finished writing assertions.');
-	}
-}
 
 async function processChurchEnslaverMentions(mentions) {
 	log('Processing Enslaver Mentions for Church records...');
 
-	const enslavers = new Map(); // name -> original_row
+	const enslaversToCreate = [];
+	const seenEnslavers = new Map(); // enslaver_full_name -> enslaver_mention_id
 
 	mentions.forEach(m => {
-		const name = getRowValue(m.original_data, 'enslaver_full_name');
-		if (name && !enslavers.has(name)) {
-			enslavers.set(name, m.original_data);
+		if (m.legal_status !== 'E') return;
+		const row = m.original_data;
+		const eName = getRowValue(row, 'enslaver_full_name');
+		
+		if (eName && eName.trim() !== '') {
+			const eFirstName = getRowValue(row, 'enslaver_first_name');
+			const eMiddleName = getRowValue(row, 'enslaver_middle_name');
+			const eLastName = getRowValue(row, 'enslaver_last_name');
+
+			const { first, middle, last } = parseGeneralName(eName);
+			
+			let enslaverMentionId;
+			if (seenEnslavers.has(eName)) {
+				enslaverMentionId = seenEnslavers.get(eName);
+			} else {
+				enslaverMentionId = `${m.mention_id}.1`;
+				seenEnslavers.set(eName, enslaverMentionId);
+
+				enslaversToCreate.push({
+					mention_id: enslaverMentionId,
+					source: m.source,
+					source_year: parseInt(getRowValue(row, 'record_year') || m.source_year),
+					original_data: row,
+					confidence: 0.85,
+					full_name: eName,
+					first_name: eFirstName || first,
+					middle_name: eMiddleName || middle,
+					last_name: eLastName || last,
+					legal_status: '',
+					race: 'W',
+					norm_race: 'W',
+					norm_first_name: normalizeFirstName(eFirstName || first),
+					nysiis_last_name: simpleNysiis(eLastName || last)
+				});
+			}
 		}
 	});
-
-	log(`Found ${enslavers.size} unique enslavers in processed data.`);
-	let processed = 0;
-	const total = enslavers.size;
-	const startTime = Date.now();
-
-	const enslaverNames = Array.from(enslavers.keys());
-	const dbSource = await getDatabaseSource(selectedSource);
-	const format = selectedSource.format || '';
-	const county = selectedSource.county || 'ALB';
-	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
-
-	const enslaversToCreate = [];
-	for (const [fullName, row] of enslavers) {
-		const { first, middle, last } = parseGeneralName(fullName);
-		const format = selectedSource.format || '';
-		const county = selectedSource.county || 'ALB';
-		const prefix = getMentionPrefix(format, county, selectedSource.year, row);
-	const line = getRowValue(row, 'line') || '';
-	const mId = idGenerator.generate(prefix, line);
-
-		enslaversToCreate.push({
-			mention_id: mId,
-		source: prefix,
-			source_year: parseInt(getRowValue(row, 'record_year') || selectedSource.year),
-			original_data: row,
-			confidence: 0.85,
-			full_name: fullName,
-			first_name: first,
-			middle_name: middle,
-			last_name: last,
-			legal_status: '',
-			race: 'W',
-			norm_race: 'W',
-			norm_first_name: normalizeFirstName(first),
-			nysiis_last_name: simpleNysiis(last)
-		});
-	}
 
 	if (enslaversToCreate.length > 0) {
 		log(`Inserting ${enslaversToCreate.length} new enslaver mentions...`);
 		await insertBatch(enslaversToCreate);
 	} else {
-		log('All enslavers already exist in database.');
+		log('No enslaver mentions to create.');
 	}
 }
 
@@ -961,7 +876,7 @@ async function processPostHocAssertions() {
 	const mentions = allMentions;
 
 	if (selectedSource.format.includes('SlaveSchedule')) {
-		await processSlaveScheduleAssertions(mentions);
+		log('Slave Schedule assertions already processed in mentions phase.');
 	} else if (selectedSource.format.includes('VitalRecord')) {
 		await processVitalRecordAssertions(mentions);
 	} else if (selectedSource.format.includes('Church')) {
@@ -1137,7 +1052,7 @@ async function removeDuplicateAssertions() {
 	let offset = 0;
 	const limit = 2000;
 	while (true) {
-		const res = await fetch(`${POSTGREST_URL}/assertions?select=assertion_id,subject_id,predicate,object_id,who,confidence,created&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/assertions?select=assertion_id,subject_id,predicate,object_id,who,confidence&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
 		if (!res.ok) {
 			const errText = await res.text();
 			log(`Error fetching assertions for cleanup: ${errText}`, true);
@@ -1176,7 +1091,7 @@ async function removeDuplicateAssertions() {
 				if (a.who !== 'expanded' && b.who === 'expanded') return -1;
 				if (a.who === 'expanded' && b.who !== 'expanded') return 1;
 				if ((b.confidence || 0) !== (a.confidence || 0)) return (b.confidence || 0) - (a.confidence || 0);
-				return (a.created || '').localeCompare(b.created || '');
+				return 0;
 			});
 			// Collect all but the first one
 			for (let i = 1; i < group.length; i++) {
@@ -1279,110 +1194,7 @@ async function saveAssertionsBatch(assertions) {
 	}
 }
 
-async function processSlaveScheduleAssertions(mentions) {
-	log('Creating wasEnslavedBy assertions for Slave Schedule...');
 
-	const enslaved = mentions.filter(m => m.legal_status === 'E');
-	const enslavers = mentions.filter(m => m.head === true || m.is_enslaver === true);
-
-	const enslaverMap = new Map(); // full_name -> mention_id
-	enslavers.forEach(e => {
-		enslaverMap.set(e.full_name, e.mention_id);
-	});
-
-	// Deduplication: Fetch existing assertions for slaveSchedule
-	log('Checking for existing slaveSchedule assertions to avoid duplicates...');
-	const existingAssertionKeys = await fetchExistingAssertionKeys('slaveSchedule');
-	log(`Found ${existingAssertionKeys.size} existing assertions for slaveSchedule.`);
-
-	// Group enslaved mention IDs by their enslaver_id for bulk patching
-	const enslaverGroups = {}; // enslaver_id -> [mention_id]
-	const assertionsToCreate = [];
-
-	for (const m of enslaved) {
-		const enslaverName = getRowValue(m.original_data, 'enslaver_full_name');
-		const enslaverId = enslaverMap.get(enslaverName);
-
-		if (enslaverId) {
-			if (!enslaverGroups[enslaverId]) enslaverGroups[enslaverId] = [];
-			enslaverGroups[enslaverId].push(m.mention_id);
-
-			const objValue = enslaverId || 'null';
-			const aKey = `${m.mention_id}|wasEnslavedBy|${objValue}`;
-			if (!existingAssertionKeys.has(aKey)) {
-				assertionsToCreate.push({
-					subject_id: m.mention_id,
-					predicate: 'wasEnslavedBy',
-					object_id: enslaverId,
-					who: 'slaveSchedule',
-					start_year: parseInt(selectedSource.year),
-					end_year: parseInt(selectedSource.year),
-					confidence: 0.8
-				});
-				existingAssertionKeys.add(aKey);
-			}
-		}
-	}
-
-	const enslaverIds = Object.keys(enslaverGroups);
-	log(`Linking ${enslaverIds.length} enslaver groups...`);
-
-	let processed = 0;
-	const total = enslaverIds.length;
-	const startTime = Date.now();
-
-	const CONCURRENCY = 10;
-
-	// Phase 1: Bulk PATCH enslaver_id
-	for (let i = 0; i < enslaverIds.length; i += CONCURRENCY) {
-		const chunk = enslaverIds.slice(i, i + CONCURRENCY);
-		await Promise.all(chunk.map(async (eId) => {
-			const mIds = enslaverGroups[eId];
-			try {
-				for (let j = 0; j < mIds.length; j += 100) {
-					const idChunk = mIds.slice(j, j + 100);
-					const idList = idChunk.map(id => `"${id}"`).join(',');
-					await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${idList})`, {
-						method: 'PATCH',
-						headers: API_HEADERS,
-						body: JSON.stringify({ enslaver_id: eId })
-					});
-				}
-			} catch (err) {
-				log(`Failed to link enslaver ${eId}: ${err.message}`, true);
-			}
-			processed++;
-			updateProgress(processed, total, startTime, 'enslavers linked');
-		}));
-	}
-
-	// Phase 2: Bulk POST assertions in parallel
-	log(`Writing ${assertionsToCreate.length} assertions...`);
-	const BATCH_SIZE = 1000;
-	const assertionBatches = [];
-	for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
-		assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
-	}
-
-	let assertionsWritten = 0;
-	const aTotal = assertionBatches.length;
-	const aStartTime = Date.now();
-
-	for (let i = 0; i < assertionBatches.length; i += CONCURRENCY) {
-		const chunk = assertionBatches.slice(i, i + CONCURRENCY);
-		await Promise.all(chunk.map(async (batch) => {
-			try {
-				await saveAssertionsBatch(batch);
-				assertionsWritten += batch.length;
-			} catch (err) {
-				log(`Failed to write assertion batch: ${err.message}`, true);
-			}
-			updateProgress(assertionsWritten, assertionsToCreate.length, aStartTime, 'assertions written');
-		}));
-	}
-
-	log(`Created ${assertionsWritten} wasEnslavedBy assertions and linked enslaver IDs.`);
-}
 
 async function processVitalRecordAssertions(mentions) {
 	log(`Creating Parent-Child assertions for ${mentions.length} Vital Records mentions...`);
@@ -1488,30 +1300,10 @@ async function processChurchAssertions(mentions) {
 	log('Creating wasEnslavedBy assertions for Church records...');
 
 	const dbSource = await getDatabaseSource(selectedSource);
-	const format = selectedSource.format || '';
-	const county = selectedSource.county || 'ALB';
-	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
-
-	const enslaved = mentions.filter(m => getRowValue(m.original_data, 'enslaver_full_name'));
+	const enslaved = mentions.filter(m => m.legal_status === 'E' && getRowValue(m.original_data, 'enslaver_full_name'));
 	if (enslaved.length === 0) {
 		log('No enslaved persons with enslavers found in these records.');
 		return;
-	}
-
-	const enslaverNames = Array.from(new Set(enslaved.map(m => getRowValue(m.original_data, 'enslaver_full_name'))));
-	const enslaverMap = new Map();
-
-	for (let i = 0; i < enslaverNames.length; i += 100) {
-		const chunk = enslaverNames.slice(i, i + 100);
-		try {
-			const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${prefix}-*&full_name=in.(${chunk.map(n => `"${n.replace(/"/g, '""')}"`).join(',')})`, { headers: API_HEADERS });
-			if (res.ok) {
-				const data = await res.json();
-				data.forEach(m => enslaverMap.set(m.full_name, m.mention_id));
-			}
-		} catch (err) {
-			log(`Failed to fetch enslavers for assertions: ${err.message}`, true);
-		}
 	}
 
 	log(`Checking for existing ${dbSource} assertions to avoid duplicates...`);
@@ -1522,20 +1314,18 @@ async function processChurchAssertions(mentions) {
 
 	for (const m of enslaved) {
 		const enslaverName = getRowValue(m.original_data, 'enslaver_full_name');
-		const enslaverId = enslaverMap.get(enslaverName);
-
-		if (enslaverId) {
-			const objValue = enslaverId || 'null';
+		if (enslaverName && enslaverName.trim() !== '') {
+			const objValue = `${m.mention_id}.1`;
 			const aKey = `${m.mention_id}|wasEnslavedBy|${objValue}`;
 			if (!existingAssertionKeys.has(aKey)) {
 				assertionsToCreate.push({
 					subject_id: m.mention_id,
 					predicate: 'wasEnslavedBy',
-					object_id: enslaverId,
+					object_id: objValue,
 					who: dbSource,
 					start_year: parseInt(getRowValue(m.original_data, 'record_year') || selectedSource.year),
 					end_year: null,
-					confidence: 0.8
+					confidence: 0.85
 				});
 				existingAssertionKeys.add(aKey);
 			}

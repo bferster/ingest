@@ -72,7 +72,7 @@ async function ContenderNarratives() {
 		let allAssertions = [];
 		offset = 0;
 		while (true) {
-			const res = await fetch(`${POSTGREST_URL}/assertions?select=subject_id,predicate,object_id,county,start_year,end_year,confidence&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+			const res = await fetch(`${POSTGREST_URL}/assertions?select=subject_id,predicate,object_id,start_year,end_year,confidence&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
 			if (!res.ok) throw new Error('Failed to fetch assertions');
 			const data = await res.json();
 			if (data.length === 0) break;
