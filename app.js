@@ -15,12 +15,15 @@ class MentionIdGenerator {
 	constructor() {
 		this.usedIds = {};
 	}
-	generate(prefix, line) {
+	generate(prefix, line, isSlaveSchedule = false) {
 		let cleanLine = String(line || '').trim();
 		if (!cleanLine) {
 			cleanLine = 'unknown';
 		}
 		const baseId = `${prefix}-${cleanLine}`;
+		if (isSlaveSchedule) {
+			return baseId;
+		}
 		if (this.usedIds[baseId] === undefined) {
 			this.usedIds[baseId] = 0;
 			return baseId;
@@ -294,15 +297,48 @@ processBtn.addEventListener('click', async () => {
 	}
 });
 
+function deduplicateBatchByMentionId(batch) {
+	if (!batch || batch.length === 0) return batch;
+	const map = new Map();
+	batch.forEach(item => {
+		if (item && item.mention_id) {
+			map.set(item.mention_id, item);
+		}
+	});
+	return Array.from(map.values());
+}
+
+function normalizeObjectKeys(batch) {
+	if (!batch || batch.length === 0) return batch;
+	const allKeys = new Set();
+	batch.forEach(obj => {
+		if (obj && typeof obj === 'object') {
+			Object.keys(obj).forEach(k => allKeys.add(k));
+		}
+	});
+
+	return batch.map(obj => {
+		if (!obj || typeof obj !== 'object') return obj;
+		const cleanObj = {};
+		allKeys.forEach(key => {
+			const val = obj[key];
+			cleanObj[key] = (val === undefined) ? null : val;
+		});
+		return cleanObj;
+	});
+}
+
 async function insertBatch(batch) {
 	if (batch.length === 0) return;
+	const uniqueBatch = deduplicateBatchByMentionId(batch);
+	const cleanBatch = normalizeObjectKeys(uniqueBatch);
 	const postRes = await fetch(`${POSTGREST_URL}/mentions`, {
 		method: 'POST',
 		headers: {
 			...API_HEADERS,
 			'Prefer': 'return=representation,resolution=merge-duplicates'
 		},
-		body: JSON.stringify(batch)
+		body: JSON.stringify(cleanBatch)
 	});
 
 	if (!postRes.ok) {
@@ -347,11 +383,19 @@ function getRowValue(obj, key) {
 
 async function prepareMention(row, rowIndex = -1) {
 	// 1. Extract full_name and basic normalization
-	const firstName = row.first_name || row.FirstName || row.GivenName || '';
-	const middleName = row.middle_name || row.MiddleName || '';
-	const lastName = row.last_name || row.LastName || row.Surname || '';
-	const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ').trim();
+	let firstName = row.first_name || row.FirstName || row.GivenName || '';
+	let middleName = row.middle_name || row.MiddleName || '';
+	let lastName = row.last_name || row.LastName || row.Surname || '';
+	let fullName = row.full_name || row.FullName || '';
 
+	if (!fullName && (firstName || lastName)) {
+		fullName = [firstName, middleName, lastName].filter(Boolean).join(' ').trim();
+	} else if (fullName && (!firstName && !lastName)) {
+		const parsed = parseGeneralName(fullName);
+		firstName = parsed.first;
+		middleName = parsed.middle;
+		lastName = parsed.last;
+	}
 
 	// 3. Normalize fields (Stubbing the advanced logic outlined in Normalize.md)
 	const nysiisLastName = simpleNysiis(lastName);
@@ -376,8 +420,17 @@ async function prepareMention(row, rowIndex = -1) {
 	const format = selectedSource.format || '';
 	const county = selectedSource.county || 'ALB';
 	const prefix = getMentionPrefix(format, county, selectedSource.year, row);
-	const line = getRowValue(row, 'line') || '';
-	const mId = idGenerator.generate(prefix, line);
+	const isSlaveSchedule = format.includes('SlaveSchedule');
+	let line;
+	if (isSlaveSchedule) {
+		line = rowIndex >= 0 ? (rowIndex + 1) : (getRowValue(row, 'line') || '1');
+	} else {
+		line = getRowValue(row, 'line');
+		if (!line || String(line).trim() === '') {
+			line = rowIndex >= 0 ? (rowIndex + 1) : '';
+		}
+	}
+	const mId = idGenerator.generate(prefix, line, isSlaveSchedule);
 
 	// 4. Construct Mention Object
 	const mention = {
@@ -412,11 +465,12 @@ async function prepareMention(row, rowIndex = -1) {
 
 async function getDatabaseSource(source) {
 	const format = source.format || '';
-	if (format.includes('SlaveSchedule')) return `ALB_SS-${source.year}`;
-	if (format.includes('FreeBlackRegister')) return "ALB_FBR";
-	if (format.includes('FindAGrave')) return "ALB_FindAGrave";
-	if (format.includes('FreedmansList')) return "ALB_FL-1865";
-	if (format.includes('VitalRecord')) return "ALB_VR_1715";
+	const county = source.county || 'ALB';
+	if (format.includes('SlaveSchedule')) return `${county}_SS-${source.year}`;
+	if (format.includes('FreeBlackRegister')) return `${county}_FBR`;
+	if (format.includes('FindAGrave')) return `${county}_FindAGrave`;
+	if (format.includes('FreedmansList')) return `${county}_FL-1865`;
+	if (format.includes('VitalRecord')) return `${county}_VR_1715`;
 	return source.display_name;
 }
 
@@ -503,20 +557,25 @@ async function applyFormatSpecificRules(mention, row) {
 
 	// SlaveSchedule
 	if (format.includes('SlaveSchedule')) {
-		const isOwner = String(row.owner || row.Owner || row.status || row.Status || '').trim().toUpperCase() === 'Y' || String(row.status || row.Status || '').trim().toLowerCase() === 'owner';
+		mention.confidence = 0.9;
+		const statusVal = String(getRowValue(row, 'status') || getRowValue(row, 'owner') || '').trim();
+		const isOwner = statusVal.toUpperCase() === 'Y' || statusVal.toLowerCase() === 'owner' || statusVal.toLowerCase() === 'enslaver';
 		if (isOwner) {
 			mention.legal_status = null;
 			mention.head = true;
 			mention.birth_year = null;
 			mention.death_year = null;
+			mention.gender = null;
 			mention.race = 'W'; // Set enslaver's race to "W"
 			mention.norm_race = 'W';
-			mention.gender = null;
+			mention.occupation = null;
+			mention.norm_occupation = null;
 		} else {
 			mention.legal_status = 'E';
 			mention.head = null;
-			mention.race = 'B';
-			mention.norm_race = 'B';
+			const r = row.race || row.Race;
+			mention.race = mapRace(r) || 'B';
+			mention.norm_race = simpleRaceNorm(r) || 'B';
 		}
 	}
 }
@@ -1183,10 +1242,11 @@ async function removeDuplicateMentions(prefix) {
 
 async function saveAssertionsBatch(assertions) {
 	if (assertions.length === 0) return;
+	const cleanAssertions = normalizeObjectKeys(assertions);
 	const res = await fetch(`${POSTGREST_URL}/assertions`, {
 		method: 'POST',
 		headers: API_HEADERS,
-		body: JSON.stringify(assertions)
+		body: JSON.stringify(cleanAssertions)
 	});
 	if (!res.ok) {
 		const err = await res.text();
@@ -1969,10 +2029,14 @@ async function ingestSingleSource(source, csvData, useLimit) {
 		let currentEnslaver = null;
 		for (let i = 0; i < currentCsvData.length; i++) {
 			const row = currentCsvData[i];
-			const isOwner = String(row.owner || row.Owner || row.status || row.Status || '').trim().toUpperCase() === 'Y' || String(row.status || row.Status || '').trim().toLowerCase() === 'owner';
+			const statusVal = String(getRowValue(row, 'status') || getRowValue(row, 'owner') || '').trim();
+			const isOwner = statusVal.toUpperCase() === 'Y' || statusVal.toLowerCase() === 'owner' || statusVal.toLowerCase() === 'enslaver';
 			if (isOwner) {
 				currentHouseholdId = `HS${selectedSource.year}-${householdCounter++}`;
-				currentEnslaver = [row.first_name || row.FirstName || '', row.middle_name || row.MiddleName || '', row.last_name || row.LastName || ''].filter(Boolean).join(' ').trim() || row.full_name || row.FullName || '';
+				const fn = getRowValue(row, 'first_name') || getRowValue(row, 'FirstName') || '';
+				const mn = getRowValue(row, 'middle_name') || getRowValue(row, 'MiddleName') || '';
+				const ln = getRowValue(row, 'last_name') || getRowValue(row, 'LastName') || '';
+				currentEnslaver = [fn, mn, ln].filter(Boolean).join(' ').trim() || getRowValue(row, 'full_name') || getRowValue(row, 'FullName') || '';
 			}
 			if (currentHouseholdId) {
 				householdMap.set(i, currentHouseholdId);

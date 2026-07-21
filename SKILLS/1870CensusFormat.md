@@ -53,7 +53,7 @@ description: Format instructions for 1870CensusFormat
 	| 5    | PO1870-4 | 1        | 1      | Agnes Hamm | Agnes     |             | Hamm      | 41  | 1829       | F      | W    |            | 1    |         |         |      |
 	| 6    | PO1870-4 | 1        | 1      | Sallie Maddex | Sallie |             | Maddex    | 8   | 1862       | F      | W    | At Home    | 1    |         |         |      |
 	| 7    | PO1870-8 | 2        | 2      | John Myers| John       |             | Myers     | 45  | 1825       | M      | B    | Rail Road  | 1    |         |         | Y    |
-	| 8    | PO1870-8 | 2s        | 2      | Helen Myers | Helen    |             | Myers     | 50  | 1820       | F      | B    |            | 1    |         |         |      |
+	| 8    | PO1870-8 | 2        | 2      | Helen Myers | Helen    |             | Myers     | 50  | 1820       | F      | B    |            | 1    |         |         |      |
 	| 9    | PO1870-8 | 2        | 2      | Sam Brown | Sam        |             | Brown     | 20  | 1850       | M      | B    |            | 1    |         |         |      |
 	| 10   | PO1870-8 | 2        | 2      | Betsy Brown | Betsy    |             | Brown     | 13  | 1857       | F      | B    | At Home    | 1    |         |         |      |
 	| 11   | PO1870-8 | 2        | 2      | Albert Brown | Albert  |             | Brown     | 15  | 1855       | M      | B    | Domestic   | 1    |         |         |      |
@@ -69,7 +69,7 @@ description: Format instructions for 1870CensusFormat
 	- If the head field is "Y" then set the head field to TRUE	
 	- Apply the normalization as described in @Normalize.md
 	- Add mention to mentions table
-s
+
 **Creating the mention_id**
 
 	- The county for this source is "ALB".
