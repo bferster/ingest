@@ -135,4 +135,11 @@ The process for ingesting a source is:
 
 **CHECK FOR DUPLICATE ASSERTIONS**
 
-	After all theare generated, remove any duplicate assertions that have the same subject, object_id, and predicate.
+	After all are generated, remove any duplicate assertions that have the same subject, object_id, and predicate.
+
+
+
+
+	
+	
+

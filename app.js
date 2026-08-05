@@ -48,6 +48,12 @@ function getMentionPrefix(format, county, sourceYear, row) {
 		return `${county}-FL`;
 	} else if (format.includes('SlaveSchedule')) {
 		return `${county}-SS-${sourceYear}`;
+	} else if (format.includes('SlaveBirth')) {
+		return `${county}-SB`;
+	} else if (format.includes('CohabFamily')) {
+		return `${county}-CF`;
+	} else if (format.includes('CohabChild') || format.includes('Cohab')) {
+		return `${county}-CC`;
 	} else if (format.includes('VitalRecord')) {
 		const rType = (row && (row.type || row.Type || '')) ? String(row.type || row.Type).toLowerCase() : '';
 		let pfx = 'VR';
@@ -195,6 +201,20 @@ function populateSourceDropdown() {
 				populateSourceDropdown();
 				previewSection.classList.add('hidden');
 				progressSection.classList.add('hidden');
+			});
+		}
+
+		if (actionSelect) {
+			actionSelect.addEventListener('change', async () => {
+				const val = actionSelect.value;
+				if (!val) return;
+				if (val === 'expand_assertions') {
+					if (typeof expandAssertions === 'function') await expandAssertions();
+				} else if (val === 'create_narratives') {
+					if (typeof ContenderNarratives === 'function') await ContenderNarratives();
+				} else if (val === 'ingest_all') {
+					await ingestAllSources();
+				}
 			});
 		}
 
@@ -382,11 +402,11 @@ function getRowValue(obj, key) {
 }
 
 async function prepareMention(row, rowIndex = -1) {
-	// 1. Extract full_name and basic normalization
-	let firstName = row.first_name || row.FirstName || row.GivenName || '';
-	let middleName = row.middle_name || row.MiddleName || '';
-	let lastName = row.last_name || row.LastName || row.Surname || '';
-	let fullName = row.full_name || row.FullName || '';
+	// 1. Extract name fields using robust getRowValue
+	let firstName = getRowValue(row, 'first_name') || getRowValue(row, 'given_name') || getRowValue(row, 'name') || '';
+	let middleName = getRowValue(row, 'middle_name') || '';
+	let lastName = getRowValue(row, 'last_name') || getRowValue(row, 'surname') || '';
+	let fullName = getRowValue(row, 'full_name') || '';
 
 	if (!fullName && (firstName || lastName)) {
 		fullName = [firstName, middleName, lastName].filter(Boolean).join(' ').trim();
@@ -397,28 +417,38 @@ async function prepareMention(row, rowIndex = -1) {
 		lastName = parsed.last;
 	}
 
-	// 3. Normalize fields (Stubbing the advanced logic outlined in Normalize.md)
-	const nysiisLastName = simpleNysiis(lastName);
-	const normFirstName = normalizeFirstName(firstName);
-	const rawOccupation = (row.occupation || row.Occupation || '').trim();
-	const normOccupation = normalizeOccupation(rawOccupation);
-	const normRace = simpleRaceNorm(row.race || row.Race || '');
+	// 2. Extract birth_year and age using robust getRowValue
+	let rawBirthYear = getRowValue(row, 'birth_year') || getRowValue(row, 'birthyear') || getRowValue(row, 'year_of_birth');
+	let rawAge = getRowValue(row, 'age');
 
 	let computedBirthYear = null;
-	if (row.birth_year || row.BirthYear || row.birthYear) {
-		computedBirthYear = parseInt(row.birth_year || row.BirthYear || row.birthYear);
-	} else if (row.age || row.Age) {
-		const age = parseInt(row.age || row.Age);
+	if (rawBirthYear !== null && rawBirthYear !== undefined && String(rawBirthYear).trim() !== '') {
+		const parsedBy = parseInt(String(rawBirthYear).trim());
+		if (!isNaN(parsedBy)) computedBirthYear = parsedBy;
+	}
+	
+	if (computedBirthYear === null && rawAge !== null && rawAge !== undefined && String(rawAge).trim() !== '') {
+		const age = parseInt(String(rawAge).trim());
 		if (!isNaN(age)) {
-			computedBirthYear = selectedSource.year - age;
+			const refYear = (selectedSource && selectedSource.year) ? parseInt(selectedSource.year) : 1866;
+			computedBirthYear = refYear - age;
 		}
 	}
 	if (isNaN(computedBirthYear)) computedBirthYear = null;
 
-	const deathYear = (row.death_year || row.DeathYear) ? parseInt(row.death_year || row.DeathYear) : null;
+	const rawDeathYear = getRowValue(row, 'death_year');
+	const deathYear = (rawDeathYear !== null && rawDeathYear !== undefined && String(rawDeathYear).trim() !== '') ? parseInt(String(rawDeathYear).trim()) : null;
+
+	const nysiisLastName = simpleNysiis(lastName);
+	const normFirstName = normalizeFirstName(firstName);
+	const rawOccupation = (getRowValue(row, 'occupation') || '').trim();
+	const normOccupation = normalizeOccupation(rawOccupation);
+	const rawRace = getRowValue(row, 'race');
+	const normRace = simpleRaceNorm(rawRace || '');
+	const rawGender = getRowValue(row, 'gender') || getRowValue(row, 'sex');
 
 	const format = selectedSource.format || '';
-	const county = selectedSource.county || 'ALB';
+	const county = selectedSource.county || 'AUG';
 	const prefix = getMentionPrefix(format, county, selectedSource.year, row);
 	const isSlaveSchedule = format.includes('SlaveSchedule');
 	let line;
@@ -445,28 +475,41 @@ async function prepareMention(row, rowIndex = -1) {
 		last_name: lastName,
 		birth_year: computedBirthYear,
 		death_year: isNaN(deathYear) ? null : deathYear,
-		race: mapRace(row.race || row.Race),
-		gender: mapGender(row.gender || row.Gender || row.Sex),
+		race: mapRace(rawRace),
+		gender: mapGender(rawGender),
 		occupation: rawOccupation,
 		norm_first_name: normFirstName,
 		nysiis_last_name: nysiisLastName,
 		metaphone_last_name: doubleMetaphone(lastName),
 		norm_race: normRace ? normRace.substring(0, 1) : null,
 		norm_occupation: normOccupation,
-		head: String(row.head || row.Head || '').toUpperCase() === 'Y' || String(row.head || row.Head || '').toLowerCase() === 'TRUE',
+		head: String(getRowValue(row, 'head') || '').toUpperCase() === 'Y' || String(getRowValue(row, 'head') || '').toLowerCase() === 'TRUE',
 		legal_status: '', // Default
 		household_id: rowIndex >= 0 ? (householdMap.get(rowIndex) || null) : null,
 		family_id: rowIndex >= 0 ? (familyMap.get(rowIndex) || null) : null
 	};
 
 	applyFormatSpecificRules(mention, row);
+
+	if (mention.last_name && String(mention.last_name).trim() !== '') {
+		const cleanLast = String(mention.last_name).trim();
+		mention.nysiis_last_name = simpleNysiis(cleanLast);
+		mention.metaphone_last_name = doubleMetaphone(cleanLast);
+	} else {
+		mention.nysiis_last_name = null;
+		mention.metaphone_last_name = null;
+	}
+
 	return mention;
 }
 
 async function getDatabaseSource(source) {
 	const format = source.format || '';
-	const county = source.county || 'ALB';
+	const county = source.county || 'AUG';
 	if (format.includes('SlaveSchedule')) return `${county}_SS-${source.year}`;
+	if (format.includes('SlaveBirth')) return `${county}_SB`;
+	if (format.includes('CohabFamily')) return `${county}_CF`;
+	if (format.includes('CohabChild') || format.includes('Cohab')) return `${county}_CC`;
 	if (format.includes('FreeBlackRegister')) return `${county}_FBR`;
 	if (format.includes('FindAGrave')) return `${county}_FindAGrave`;
 	if (format.includes('FreedmansList')) return `${county}_FL-1865`;
@@ -578,6 +621,87 @@ async function applyFormatSpecificRules(mention, row) {
 			mention.norm_race = simpleRaceNorm(r) || 'B';
 		}
 	}
+
+	// SlaveBirth
+	if (format.includes('SlaveBirth')) {
+		mention.confidence = 0.95;
+		mention.legal_status = 'E';
+		mention.race = 'B';
+		mention.norm_race = 'B';
+		const nameVal = getRowValue(row, 'name') || getRowValue(row, 'full_name');
+		if (nameVal) {
+			const { first, middle, last } = parseGeneralName(nameVal);
+			mention.full_name = nameVal;
+			mention.first_name = first || nameVal;
+			mention.middle_name = middle;
+			mention.last_name = last;
+			mention.norm_first_name = normalizeFirstName(mention.first_name);
+		}
+	}
+
+	// CohabChild
+	if (format.includes('CohabChild')) {
+		mention.confidence = 0.95;
+		mention.legal_status = null;
+		mention.race = 'B';
+		mention.norm_race = 'B';
+		mention.source_year = 1866;
+
+		const byVal = getRowValue(row, 'birth_year');
+		if (byVal) {
+			const parsedBy = parseInt(byVal);
+			if (!isNaN(parsedBy)) mention.birth_year = parsedBy;
+		} else {
+			const ageVal = getRowValue(row, 'age');
+			if (ageVal) {
+				const parsedAge = parseInt(ageVal);
+				if (!isNaN(parsedAge)) mention.birth_year = 1866 - parsedAge;
+			}
+		}
+
+		const fVal = getRowValue(row, 'family');
+		if (fVal) {
+			mention.family_id = `FC1866-${fVal}`;
+		}
+	}
+
+	// CohabFamily
+	if (format.includes('CohabFamily')) {
+		mention.confidence = 0.95;
+		mention.legal_status = null;
+		mention.gender = 'M';
+		mention.race = 'B';
+		mention.norm_race = 'B';
+		mention.source_year = 1866;
+
+		const hFirst = getRowValue(row, 'husband_first_name');
+		const hMiddle = getRowValue(row, 'husband_middle_name');
+		const hLast = getRowValue(row, 'husband_last_name');
+		if (hFirst || hLast) {
+			mention.first_name = hFirst || '';
+			mention.middle_name = hMiddle || '';
+			mention.last_name = hLast || '';
+			mention.full_name = [hFirst, hMiddle, hLast].filter(Boolean).join(' ').trim();
+			mention.norm_first_name = normalizeFirstName(mention.first_name);
+		}
+
+		const hBy = getRowValue(row, 'husband_birth_year') || getRowValue(row, 'husband_birthyear');
+		if (hBy) {
+			const parsedBy = parseInt(hBy);
+			if (!isNaN(parsedBy)) mention.birth_year = parsedBy;
+		}
+
+		const hOcc = getRowValue(row, 'husband_occupation');
+		if (hOcc) {
+			mention.occupation = hOcc.trim();
+			mention.norm_occupation = normalizeOccupation(mention.occupation);
+		}
+
+		const fVal = getRowValue(row, 'family');
+		if (fVal) {
+			mention.family_id = `FC1866-${fVal}`;
+		}
+	}
 }
 
 async function createAssertions(mention, row) {
@@ -633,6 +757,21 @@ async function processPostHocMentions() {
 
 	if (selectedSource.format.includes('Church')) {
 		await processChurchEnslaverMentions(mentions);
+		return;
+	}
+
+	if (selectedSource.format.includes('SlaveBirth')) {
+		await processSlaveBirthPostHoc(mentions);
+		return;
+	}
+
+	if (selectedSource.format.includes('CohabFamily')) {
+		await processCohabFamilyPostHoc(mentions);
+		return;
+	}
+
+	if (selectedSource.format.includes('CohabChild')) {
+		await processCohabChildPostHoc(mentions);
 		return;
 	}
 
@@ -755,6 +894,7 @@ async function processChurchEnslaverMentions(mentions) {
 				enslaverMentionId = `${m.mention_id}.1`;
 				seenEnslavers.set(eName, enslaverMentionId);
 
+				const lastVal = eLastName || last;
 				enslaversToCreate.push({
 					mention_id: enslaverMentionId,
 					source: m.source,
@@ -764,12 +904,13 @@ async function processChurchEnslaverMentions(mentions) {
 					full_name: eName,
 					first_name: eFirstName || first,
 					middle_name: eMiddleName || middle,
-					last_name: eLastName || last,
+					last_name: lastVal,
 					legal_status: '',
 					race: 'W',
 					norm_race: 'W',
 					norm_first_name: normalizeFirstName(eFirstName || first),
-					nysiis_last_name: simpleNysiis(eLastName || last)
+					nysiis_last_name: lastVal ? simpleNysiis(lastVal) : null,
+					metaphone_last_name: lastVal ? doubleMetaphone(lastVal) : null
 				});
 			}
 		}
@@ -780,6 +921,176 @@ async function processChurchEnslaverMentions(mentions) {
 		await insertBatch(enslaversToCreate);
 	} else {
 		log('No enslaver mentions to create.');
+	}
+}
+
+async function processSlaveBirthPostHoc(mentions) {
+	log('Processing Mother and Enslaver Mentions for Slave Birth records...');
+
+	const additionalMentions = [];
+
+	mentions.forEach(m => {
+		const row = m.original_data;
+		if (!row) return;
+
+		const motherName = getRowValue(row, 'mother');
+		const ownerName = getRowValue(row, 'owner_full_name');
+
+		if (motherName && motherName.trim() !== '') {
+			const cleanMother = motherName.replace(/[.,]/g, '').trim();
+			const { first, middle, last } = parseGeneralName(cleanMother, true);
+			additionalMentions.push({
+				mention_id: `${m.mention_id}.1`,
+				source: m.source,
+				source_year: m.source_year,
+				original_data: row,
+				confidence: 0.95,
+				full_name: cleanMother,
+				first_name: first,
+				middle_name: middle,
+				last_name: last,
+				gender: 'F',
+				race: 'B',
+				norm_race: 'B',
+				legal_status: 'E',
+				norm_first_name: normalizeFirstName(first),
+				nysiis_last_name: last ? simpleNysiis(last) : null,
+				metaphone_last_name: last ? doubleMetaphone(last) : null
+			});
+		}
+
+		if (ownerName && ownerName.trim() !== '') {
+			const cleanOwner = ownerName.replace(/[.,]/g, '').trim();
+			const { first, middle, last } = parseGeneralName(cleanOwner);
+			additionalMentions.push({
+				mention_id: `${m.mention_id}.2`,
+				source: m.source,
+				source_year: m.source_year,
+				original_data: row,
+				confidence: 0.95,
+				full_name: cleanOwner,
+				first_name: first,
+				middle_name: middle,
+				last_name: last,
+				race: 'W',
+				norm_race: 'W',
+				legal_status: null,
+				norm_first_name: normalizeFirstName(first),
+				nysiis_last_name: last ? simpleNysiis(last) : null,
+				metaphone_last_name: last ? doubleMetaphone(last) : null
+			});
+		}
+	});
+
+	if (additionalMentions.length > 0) {
+		log(`Inserting ${additionalMentions.length} new mother/enslaver mentions for Slave Births...`);
+		await insertBatch(additionalMentions);
+	} else {
+		log('No additional mother or enslaver mentions to create for Slave Births.');
+	}
+}
+
+async function processCohabChildPostHoc(mentions) {
+	log('Processing Father Mentions for Cohabitation Child records...');
+
+	const additionalMentions = [];
+
+	mentions.forEach(m => {
+		const row = m.original_data;
+		if (!row) return;
+
+		const fFirst = getRowValue(row, 'father_first_name');
+		const fLast = getRowValue(row, 'father_last_name');
+
+		if ((fFirst && fFirst.trim()) || (fLast && fLast.trim())) {
+			const cleanFirst = fFirst ? fFirst.replace(/[.,]/g, '').trim() : '';
+			const cleanLast = fLast ? fLast.replace(/[.,]/g, '').trim() : '';
+			const fullName = [cleanFirst, cleanLast].filter(Boolean).join(' ');
+
+			additionalMentions.push({
+				mention_id: `${m.mention_id}.1`,
+				source: m.source,
+				source_year: 1866,
+				original_data: row,
+				confidence: 0.95,
+				full_name: fullName,
+				first_name: cleanFirst,
+				last_name: cleanLast,
+				gender: 'M',
+				race: 'B',
+				norm_race: 'B',
+				legal_status: null,
+				norm_first_name: normalizeFirstName(cleanFirst),
+				nysiis_last_name: cleanLast ? simpleNysiis(cleanLast) : null,
+				metaphone_last_name: cleanLast ? doubleMetaphone(cleanLast) : null
+			});
+		}
+	});
+
+	if (additionalMentions.length > 0) {
+		log(`Inserting ${additionalMentions.length} new father mentions for Cohabitation Children...`);
+		await insertBatch(additionalMentions);
+	} else {
+		log('No father mentions to create for Cohabitation Children.');
+	}
+}
+
+async function processCohabFamilyPostHoc(mentions) {
+	log('Processing Wife Mentions for Cohabitation Family records...');
+
+	const wifeMentions = [];
+
+	mentions.forEach(m => {
+		const row = m.original_data;
+		if (!row) return;
+
+		// Skip secondary mentions
+		if (m.mention_id.includes('.')) return;
+
+		const wFirst = getRowValue(row, 'wife_first_name');
+		const wMiddle = getRowValue(row, 'wife_middle_name');
+		const wLast = getRowValue(row, 'wife_last_name');
+
+		if ((wFirst && wFirst.trim()) || (wLast && wLast.trim())) {
+			const cleanFirst = wFirst ? wFirst.replace(/[.,]/g, '').trim() : '';
+			const cleanMiddle = wMiddle ? wMiddle.replace(/[.,]/g, '').trim() : '';
+			const cleanLast = wLast ? wLast.replace(/[.,]/g, '').trim() : '';
+			const fullName = [cleanFirst, cleanMiddle, cleanLast].filter(Boolean).join(' ');
+
+			const wBy = getRowValue(row, 'wife_birth_year') || getRowValue(row, 'wife_birthyear');
+			let wifeBirthYear = null;
+			if (wBy) {
+				const parsed = parseInt(wBy);
+				if (!isNaN(parsed)) wifeBirthYear = parsed;
+			}
+
+			wifeMentions.push({
+				mention_id: `${m.mention_id}.1`,
+				source: m.source,
+				source_year: 1866,
+				original_data: row,
+				confidence: 0.95,
+				full_name: fullName,
+				first_name: cleanFirst,
+				middle_name: cleanMiddle,
+				last_name: cleanLast,
+				birth_year: wifeBirthYear,
+				gender: 'F',
+				race: 'B',
+				norm_race: 'B',
+				legal_status: null,
+				norm_first_name: normalizeFirstName(cleanFirst),
+				nysiis_last_name: cleanLast ? simpleNysiis(cleanLast) : null,
+				metaphone_last_name: cleanLast ? doubleMetaphone(cleanLast) : null
+			});
+		}
+	});
+
+	if (wifeMentions.length > 0) {
+		log(`Inserting ${wifeMentions.length} new wife mentions for Cohabitation Families...`);
+		await insertBatch(wifeMentions);
+	} else {
+		log('No wife mentions to create for Cohabitation Families.');
 	}
 }
 
@@ -818,7 +1129,7 @@ async function processVitalRecordPostHoc(mentions) {
 		const r = m.original_data;
 		if (!r) continue;
 		const format = selectedSource.format || '';
-		const county = selectedSource.county || 'ALB';
+		const county = selectedSource.county || 'AUG';
 		const prefix = getMentionPrefix(format, county, selectedSource.year, r);
 		const line = getRowValue(r, 'line') || '';
 		const baseId = line ? `${prefix}-${line}` : `${prefix}`;
@@ -873,7 +1184,8 @@ async function processVitalRecordPostHoc(mentions) {
 					last_name: last,
 					gender: p.gender,
 					norm_first_name: normalizeFirstName(first),
-					nysiis_last_name: simpleNysiis(last)
+					nysiis_last_name: last ? simpleNysiis(last) : null,
+					metaphone_last_name: last ? doubleMetaphone(last) : null
 				});
 			}
 		}
@@ -912,7 +1224,7 @@ async function processPostHocAssertions() {
 
 	const dbSource = await getDatabaseSource(selectedSource);
 	const format = selectedSource.format || '';
-	const county = selectedSource.county || 'ALB';
+	const county = selectedSource.county || 'AUG';
 	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
 	let allMentions = [];
@@ -940,6 +1252,12 @@ async function processPostHocAssertions() {
 		await processVitalRecordAssertions(mentions);
 	} else if (selectedSource.format.includes('Church')) {
 		await processChurchAssertions(mentions);
+	} else if (selectedSource.format.includes('SlaveBirth')) {
+		await processSlaveBirthAssertions(mentions);
+	} else if (selectedSource.format.includes('CohabFamily')) {
+		await processCohabFamilyAssertions(mentions);
+	} else if (selectedSource.format.includes('CohabChild')) {
+		await processCohabChildAssertions(mentions);
 	} else if (selectedSource.format.includes('Census')) {
 		if (selectedSource.year == 1870) {
 			log('Skipping post-hoc assertions for 1870 Census.');
@@ -1417,6 +1735,193 @@ async function processChurchAssertions(mentions) {
 	}
 
 	log(`Created ${assertionsWritten} wasEnslavedBy assertions for Church records.`);
+}
+
+async function processSlaveBirthAssertions(mentions) {
+	log('Creating assertions for Slave Birth records...');
+
+	const county = selectedSource.county || 'AUG';
+	const whoTag = `${county}-SB`;
+
+	log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
+	const existingAssertionKeys = await fetchExistingAssertionKeys(whoTag);
+	log(`Found ${existingAssertionKeys.size} existing assertions for ${whoTag}.`);
+
+	const assertionsToCreate = [];
+
+	mentions.forEach(m => {
+		const row = m.original_data;
+		if (!row) return;
+
+		// Primary mention is child (e.g. AUG-SB-1)
+		if (m.mention_id.includes('.')) return;
+
+		const motherName = getRowValue(row, 'mother');
+		const ownerName = getRowValue(row, 'owner_full_name');
+		const birthYear = m.birth_year || m.source_year;
+
+		const childId = m.mention_id;
+		const motherId = `${m.mention_id}.1`;
+		const ownerId = `${m.mention_id}.2`;
+
+		if (motherName && motherName.trim() !== '') {
+			const mKey = `${motherId}|isParentOf|${childId}`;
+			if (!existingAssertionKeys.has(mKey)) {
+				assertionsToCreate.push({
+					subject_id: motherId,
+					predicate: 'isParentOf',
+					object_id: childId,
+					who: whoTag,
+					start_year: birthYear,
+					end_year: null,
+					confidence: 0.95
+				});
+				existingAssertionKeys.add(mKey);
+			}
+		}
+
+		if (ownerName && ownerName.trim() !== '') {
+			const eKey = `${childId}|wasEnslavedBy|${ownerId}`;
+			if (!existingAssertionKeys.has(eKey)) {
+				assertionsToCreate.push({
+					subject_id: childId,
+					predicate: 'wasEnslavedBy',
+					object_id: ownerId,
+					who: whoTag,
+					start_year: birthYear,
+					end_year: null,
+					confidence: 0.95
+				});
+				existingAssertionKeys.add(eKey);
+			}
+
+			if (motherName && motherName.trim() !== '') {
+				const meKey = `${motherId}|wasEnslavedBy|${ownerId}`;
+				if (!existingAssertionKeys.has(meKey)) {
+					assertionsToCreate.push({
+						subject_id: motherId,
+						predicate: 'wasEnslavedBy',
+						object_id: ownerId,
+						who: whoTag,
+						start_year: birthYear,
+						end_year: null,
+						confidence: 0.95
+					});
+					existingAssertionKeys.add(meKey);
+				}
+			}
+		}
+	});
+
+	if (assertionsToCreate.length > 0) {
+		log(`Writing ${assertionsToCreate.length} Slave Birth assertions...`);
+		await saveAssertionsBatch(assertionsToCreate);
+		log(`Created ${assertionsToCreate.length} assertions for Slave Births.`);
+	} else {
+		log('No new assertions to create for Slave Births.');
+	}
+}
+
+async function processCohabChildAssertions(mentions) {
+	log('Creating assertions for Cohabitation Child records...');
+
+	const county = selectedSource.county || 'AUG';
+	const whoTag = `${county}-CC`;
+
+	log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
+	const existingAssertionKeys = await fetchExistingAssertionKeys(whoTag);
+	log(`Found ${existingAssertionKeys.size} existing assertions for ${whoTag}.`);
+
+	const assertionsToCreate = [];
+
+	mentions.forEach(m => {
+		const row = m.original_data;
+		if (!row) return;
+
+		// Skip secondary mentions (father is .1)
+		if (m.mention_id.includes('.')) return;
+
+		const fFirst = getRowValue(row, 'father_first_name');
+		const fLast = getRowValue(row, 'father_last_name');
+
+		if ((fFirst && fFirst.trim()) || (fLast && fLast.trim())) {
+			const childId = m.mention_id;
+			const fatherId = `${m.mention_id}.1`;
+			const fKey = `${fatherId}|isParentOf|${childId}`;
+
+			if (!existingAssertionKeys.has(fKey)) {
+				assertionsToCreate.push({
+					subject_id: fatherId,
+					predicate: 'isParentOf',
+					object_id: childId,
+					who: whoTag,
+					start_year: 1866,
+					end_year: null,
+					confidence: 0.95
+				});
+				existingAssertionKeys.add(fKey);
+			}
+		}
+	});
+
+	if (assertionsToCreate.length > 0) {
+		log(`Writing ${assertionsToCreate.length} Cohabitation Child assertions...`);
+		await saveAssertionsBatch(assertionsToCreate);
+		log(`Created ${assertionsToCreate.length} assertions for Cohabitation Children.`);
+	} else {
+		log('No new assertions to create for Cohabitation Children.');
+	}
+}
+
+async function processCohabFamilyAssertions(mentions) {
+	log('Creating isSpouseOf assertions for Cohabitation Family records...');
+
+	const county = selectedSource.county || 'AUG';
+	const whoTag = `${county}-CF`;
+
+	log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
+	const existingAssertionKeys = await fetchExistingAssertionKeys(whoTag);
+	log(`Found ${existingAssertionKeys.size} existing assertions for ${whoTag}.`);
+
+	const assertionsToCreate = [];
+
+	mentions.forEach(m => {
+		const row = m.original_data;
+		if (!row) return;
+
+		// Skip secondary mentions (wife is .1)
+		if (m.mention_id.includes('.')) return;
+
+		const wFirst = getRowValue(row, 'wife_first_name');
+		const wLast = getRowValue(row, 'wife_last_name');
+
+		if ((wFirst && wFirst.trim()) || (wLast && wLast.trim())) {
+			const husbandId = m.mention_id;
+			const wifeId = `${m.mention_id}.1`;
+			const sKey = `${husbandId}|isSpouseOf|${wifeId}`;
+
+			if (!existingAssertionKeys.has(sKey)) {
+				assertionsToCreate.push({
+					subject_id: husbandId,
+					predicate: 'isSpouseOf',
+					object_id: wifeId,
+					who: whoTag,
+					start_year: 1866,
+					end_year: null,
+					confidence: 0.95
+				});
+				existingAssertionKeys.add(sKey);
+			}
+		}
+	});
+
+	if (assertionsToCreate.length > 0) {
+		log(`Writing ${assertionsToCreate.length} Cohabitation Family assertions...`);
+		await saveAssertionsBatch(assertionsToCreate);
+		log(`Created ${assertionsToCreate.length} assertions for Cohabitation Families.`);
+	} else {
+		log('No new assertions to create for Cohabitation Families.');
+	}
 }
 
 async function saveAssertion(assertion) {
@@ -2953,28 +3458,35 @@ async function ingestSingleSource(source, csvData, useLimit) {
 	}
 }
 
-async function ingestAllSources() {
+async function ingestAllSources(shouldClearData) {
+	if (shouldClearData === undefined) {
+		shouldClearData = confirm('Do you want to clear existing data (mentions and assertions tables) before ingesting all sources?\n\nClick OK to clear data.\nClick Cancel to keep existing data.');
+	}
+
 	if (typeof actionSelect !== 'undefined') actionSelect.disabled = true;
 	if (typeof progressSection !== 'undefined') progressSection.classList.remove('hidden');
 	stopIngestion = false;
 
 	try {
-		log('Truncating assertions table...');
-		const resAssert = await fetch(`${POSTGREST_URL}/assertions?assertion_id=not.is.null`, {
-			method: 'DELETE',
-			headers: API_HEADERS
-		});
-		if (!resAssert.ok) throw new Error('Failed to truncate assertions table');
+		if (shouldClearData) {
+			log('Truncating assertions table...');
+			const resAssert = await fetch(`${POSTGREST_URL}/assertions?assertion_id=not.is.null`, {
+				method: 'DELETE',
+				headers: API_HEADERS
+			});
+			if (!resAssert.ok) throw new Error('Failed to truncate assertions table');
 
+			log('Truncating mentions table...');
+			const resMention = await fetch(`${POSTGREST_URL}/mentions?mention_id=not.is.null`, {
+				method: 'DELETE',
+				headers: API_HEADERS
+			});
+			if (!resMention.ok) throw new Error('Failed to truncate mentions table');
 
-		log('Truncating mentions table...');
-		const resMention = await fetch(`${POSTGREST_URL}/mentions?mention_id=not.is.null`, {
-			method: 'DELETE',
-			headers: API_HEADERS
-		});
-		if (!resMention.ok) throw new Error('Failed to truncate mentions table');
-
-		log('Tables successfully truncated.');
+			log('Tables successfully truncated.');
+		} else {
+			log('Skipping truncation of existing data per user selection.');
+		}
 
 		const selectedCounty = countySelect ? countySelect.value : null;
 		const countySources = sourcesData.filter(source => source.display_name && (!selectedCounty || source.county === selectedCounty));
