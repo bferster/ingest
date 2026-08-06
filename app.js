@@ -36,7 +36,10 @@ class MentionIdGenerator {
 
 function getMentionPrefix(format, county, sourceYear, row) {
 	if (format.includes('Census')) {
-		const year = format.includes('1880') ? '1880' : '1870';
+		let year = sourceYear || '1870';
+		if (format.includes('1880')) year = '1880';
+		else if (format.includes('1860')) year = '1860';
+		else if (format.includes('1870')) year = '1870';
 		return `${county}-CN-${year}`;
 	} else if (format.includes('FindAGrave')) {
 		return `${county}-FG`;

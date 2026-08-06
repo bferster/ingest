@@ -44,8 +44,8 @@ description: Format instructions for 1870CensusFormat
 
 **Example rows**
 
-	| line | district | dwelling | family | full_name | first_name | middle_name | last_name | age | birth_year | gender | race | occupation | page | revalue | pevalue | head |
-	| ---- | -------- | -------- | ------ | --------- | ---------- | ----------- | --------- | --- | ---------- | ------ | ---- | ---------- | ---- | ------- | ------- | ---- |
+	| line | district | dwelling | family | full_name | first_name | middle_name | last_name | age | birth_year | gender | race | occupation | page | re_value | pe_value | head |
+	| ---- | -------- | -------- | ------ | --------- | ---------- | ----------- | --------- | --- | ---------- | ------ | ---- | ---------- | ---- | -------- | -------- | ---- |
 	| 1    | PO1870-4 | 1        | 1      | Mary Hamm | Mary       |             | Hamm      | 83  | 1787       | F      | W    |            | 1    | 3500    | 832     | Y    |
 	| 2    | PO1870-4 | 1        | 1      | Mary Hamm | Mary       |             | Hamm      | 52  | 1818       | F      | W    |            | 1    |         |         |      |
 	| 3    | PO1870-4 | 1        | 1      | Nath G Hamm | Nath     | G           | Hamm      | 45  | 1825       | M      | W    |            | 1    | 1000    | 2000    |      |
