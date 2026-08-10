@@ -1,11 +1,11 @@
 ---
-name: 1880CensusFormat
-description: Format instructions for 1880CensusFormat
+name: 1900CensusFormat
+description: Format instructions for 1900CensusFormat
 ---
 
-**1880 CENSUS FORMAT**
+**1900 CENSUS FORMAT**
 
-	This file is a transcription of the US census for 1880 and is a table with 19 columns. 
+	This file is a transcription of the US census for 1900 and is a table with 25 columns. 
 	It was made by an enumerator person going dwelling to dwelling. 
 	Each row represents one person living in that household. 
 	There may be omissions, duplications, and errors in this data. 
@@ -16,38 +16,44 @@ description: Format instructions for 1880CensusFormat
 	The following columns represent information about the person in a row. 	
 	Some fields may be blank {
 		- line - A unique identifier for the row.
+		- original_line - The line number on the original census sheet.
 		- district - The post office of the enumeration district.
-		- dwelling - A number used by the enumerator to identify a unique household, in order of visitation.
 		- family - A number used by the enumerator to identify a unique family, in order of visitation.
-		- full_name - The combination of the first-name, the middle_name, and the last_name separated by spaces. If there are only two words, the first is
-		- last_name and the second is the last_name. If there is only one word, it is only the last_name.
+		- full_name - The combination of the first_name, middle_name, and last_name separated by spaces.
 		- first_name - The given name.
 		- middle_name - The middle name or initials.
 		- last_name - The surname.
-		- first_name - The given name.
-		- age - The age of the person in 1870.
+		- age - The age of the person.
 		- birth_year - The year the person was born. May be inaccurate +/- 5 years.
 		- gender - The sex of the person. Can be F for female or M for male.
 		- race - The race of the person. B, W, M, I, C or Y.
-		- marital - The marital status.
-		- relation - The relationship between the person and the head of household, whose relationship is labelled Self. 
-		- occupation - The work role of the person.
+		- relation - The relationship between the person and the head of household.
+		- birth_place - State or country of birth.
+		- arrival_date - Year of immigration/arrival.
+		- birth_date - Month and year of birth.
+		- fathers_birthplace - Father's state or country of birth.
+		- marital - Marital status.
+		- mothers_birthplace - Mother's state or country of birth.
+		- number_of_children - Number of children born to mother.
+		- number_of_living_children - Number of living children.
+		- sheet - Census sheet number.
+		- years_married - Number of years married.
 		- head - "Y" if the person is the head of the household.
 		}
 
 **Example rows**
 
-| line | original_line | district | dwelling | family | full_name | first_name | middle_name | last_name | age | birth_year | gender | race | relation | occupation | birth_place | fathers_birthplace | marital_status | mothers_birthplace | person_number | sheet | head |
-| ---- | ------------- | -------- | -------- | ------ | --------- | ---------- | ----------- | --------- | --- | ---------- | ------ | ---- | -------- | ---------- | ----------- | ------------------ | -------------- | ------------------ | ------------- | ----- | ---- |
-| 1 | 1 | BEV-11 | 1 | 1 | John Sullivan | John | | Sullivan | 38 | 1842 | M | W | Self | Constable | VA | Ireland | M | Ireland | 0 | 73 | Y |
-| 2 | 2 | BEV-11 | 1 | 1 | S C Sullivan | S | C | Sullivan | 23 | 1857 | F | W | Wife | Keeps House | VA | Ireland | M | Ireland | 1 | 73 | |
-| 3 | 3 | BEV-11 | 1 | 1 | Sarah E Sullivan | Sarah | E | Sullivan | 10 | 1870 | F | W | Daughter | At School | VA | VA | S | VA | 2 | 73 | |
-| 4 | 4 | BEV-11 | 1 | 1 | Thomas T Sullivan | Thomas | T | Sullivan | 8 | 1872 | M | W | Son | At School | VA | VA | S | VA | 3 | 73 | |
-| 5 | 5 | BEV-11 | 1 | 1 | Joseph M Sullivan | Joseph | M | Sullivan | 6 | 1874 | M | W | Son | At Home | VA | VA | S | VA | 4 | 73 | |
-| 6 | 6 | BEV-11 | 1 | 1 | Mary L Sullivan | Mary | L | Sullivan | 4 | 1876 | F | W | Daughter | At Home | VA | VA | S | VA | 5 | 73 | |
-| 7 | 7 | BEV-11 | 2 | 2 | A J Garber | A | J | Garber | 77 | 1803 | M | W | Self | At Home | VA | PA | M | PA | 0 | 73 | Y |
-| 8 | 8 | BEV-11 | 2 | 2 | Mary J Garber | Mary | J | Garber | 68 | 1812 | F | W | Wife | Keeps House | PA | PA | M | PA | 1 | 73 | |
-| 9 | 9 | BEV-11 | 2 | 2 | Martha A Baroldin | Martha | A | Baroldin | 36 | 1844 | F | W | Daughter | Keeps House | PA | VA | W | PA | 2 | 73 | |
+| line | original_line | district | family | full_name | first_name | middle_name | last_name | age | birth_year | gender | race | relation | birth_place | arrival_date | birth_date | fathers_birthplace | marital | mothers_birthplace | number_of_children | number_of_living_children | sheet | years_married | head |
+| ---- | ------------- | -------- | ------ | --------- | ---------- | ----------- | --------- | --- | ---------- | ------ | ---- | -------- | ----------- | ------------ | ---------- | ------------------ | ------- | ------------------ | ------------------ | ------------------------- | ----- | ------------- | ---- |
+| 1 | 1 | ORL-1-115 | 1 | Jno H Robison | Jno | H | Robison | 51 | | M | W | Head | IN | | 1849 | OH | M | OH | | | 1 | 29 | Y |
+| 2 | 2 | ORL-1-115 | 1 | Elisha A Robison | Elisha | A | Robison | 47 | | F | W | Wife | IN | | 1853 | IN | M | OH | 14 | 12 | 1 | 29 | |
+| 3 | 3 | ORL-1-115 | 1 | Jas H Robison | Jas | H | Robison | 29 | | M | W | Son | IN | | 1871 | IN | M | OH | | | 1 | 5 | |
+| 4 | 4 | ORL-1-115 | 1 | Matte Robison | Matte | | Robison | 26 | | F | W | Daughter-in-law | IN | | 1874 | IN | M | IN | 2 | 0 | 1 | 5 | |
+| 5 | 5 | ORL-1-115 | 1 | Wm C Robison | Wm | C | Robison | 28 | | M | W | Son | IN | | 1872 | IN | S | OH | | | 1 | | |
+| 6 | 6 | ORL-1-115 | 1 | Winnie M Robison | Winnie | M | Robison | 26 | | F | W | Daughter | IN | | 1874 | IN | M | OH | 3 | 3 | 1 | 7 | |
+| 7 | 7 | ORL-1-115 | 1 | Frank M Robison | Frank | M | Robison | 24 | | M | W | Son | IN | | 1876 | IN | S | OH | | | 1 | | |
+| 8 | 8 | ORL-1-115 | 1 | Maggie E Robison | Maggie | E | Robison | 23 | | F | W | Daughter | IN | | 1877 | IN | M | OH | 1 | 0 | 1 | 3 | |
+| 9 | 9 | ORL-1-115 | 1 | Glenn M Robison | Glenn | M | Robison | 21 | | M | W | Son | IN | | 1879 | IN | S | OH | | | 1 | | |
 
 **Translation instructions**
 
@@ -56,20 +62,20 @@ description: Format instructions for 1880CensusFormat
 	- The confidence field is set to 0.9.
 	- Set household_id to null.
 	- If a new family is detected, i.e. the family number is different from the previous row {
-		- create a new id using the year and the family number, such as 1880-67.
+		- create a new id using the year and the family number, such as 1900-67.
 		- set the family_id field to the new id.
 		}
-	- If the head field is "Y" then set the head  field to TRUE.	
+	- If the head field is "Y" then set the head field to TRUE.	
 	- Apply the normalization as described in @Normalize.md.
 	- Add mention to mentions table
 
 **Creating the mention_id**
 
-	- The county for this source is "ALB".
+	- The county for this source is "ORF".
 	- The source type is "CN".
 	- The mention_id is created as follows:
-		- Each source has a unique prefix: for example: ALB-CN-1880-23, where  "ALB" is the county, "CN" is the source type, "1880" is the year and "23" is the line number from the line field in the row. 
-	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CN-1880-23.1, ALB-CN-1880-23.2 for the second, etc.
+		- Each source has a unique prefix: for example: ORF-CN-1900-23, where  "ORF" is the county, "CN" is the source type, "1900" is the year and "23" is the line number from the line field in the row. 
+	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ORF-CN-1900-23.1, ORF-CN-1900-23.2 for the second, etc.
 
 **Assertions**
 
@@ -109,8 +115,8 @@ description: Format instructions for 1880CensusFormat
 			subject: relation person's mention_id
 			predicate: predicate identified from relation field above
 			object: head_mention_id
-			who: "1880Census" 
-			start_year: 1880
+			who: "1900Census" 
+			start_year: 1900
 			end_year: ""	
 			confidence: 0.9
 			}

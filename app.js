@@ -34,38 +34,45 @@ class MentionIdGenerator {
 	}
 }
 
+function getCountyPrefix(countyCode) {
+	if (!countyCode) return 'AUG';
+	return countyCode;
+}
+
 function getMentionPrefix(format, county, sourceYear, row) {
+	const cPrefix = getCountyPrefix(county);
 	if (format.includes('Census')) {
 		let year = sourceYear || '1870';
-		if (format.includes('1880')) year = '1880';
+		if (format.includes('1900')) year = '1900';
+		else if (format.includes('1880')) year = '1880';
 		else if (format.includes('1860')) year = '1860';
 		else if (format.includes('1870')) year = '1870';
-		return `${county}-CN-${year}`;
+		return `${cPrefix}-CN-${year}`;
 	} else if (format.includes('FindAGrave')) {
-		return `${county}-FG`;
+		return `${cPrefix}-FG`;
 	} else if (format.includes('Church')) {
-		return `${county}-CH`;
+		return `${cPrefix}-CH`;
 	} else if (format.includes('FreeBlackRegister')) {
-		return `${county}-FBR`;
+		return `${cPrefix}-FBR`;
 	} else if (format.includes('FreedmansList')) {
-		return `${county}-FL`;
+		return `${cPrefix}-FL`;
 	} else if (format.includes('SlaveSchedule')) {
-		return `${county}-SS-${sourceYear}`;
+		return `${cPrefix}-SS-${sourceYear}`;
 	} else if (format.includes('SlaveBirth')) {
-		return `${county}-SB`;
+		return `${cPrefix}-SB`;
 	} else if (format.includes('CohabFamily')) {
-		return `${county}-CF`;
+		return `${cPrefix}-CF`;
 	} else if (format.includes('CohabChild') || format.includes('Cohab')) {
-		return `${county}-CC`;
+		return `${cPrefix}-CC`;
 	} else if (format.includes('VitalRecord')) {
 		const rType = (row && (row.type || row.Type || '')) ? String(row.type || row.Type).toLowerCase() : '';
 		let pfx = 'VR';
 		if (rType.includes('birth')) pfx = 'VRB';
 		else if (rType.includes('death')) pfx = 'VRD';
 		else if (rType.includes('marriage')) pfx = 'VRM';
-		return `${county}-${pfx}`;
+		return `${cPrefix}-${pfx}`;
 	}
-	return `${county}-GEN`;
+	return `${cPrefix}-GEN`;
 }
 
 let idGenerator = new MentionIdGenerator();
@@ -508,7 +515,7 @@ async function prepareMention(row, rowIndex = -1) {
 
 async function getDatabaseSource(source) {
 	const format = source.format || '';
-	const county = source.county || 'AUG';
+	const county = getCountyPrefix(source.county || 'AUG');
 	if (format.includes('SlaveSchedule')) return `${county}_SS-${source.year}`;
 	if (format.includes('SlaveBirth')) return `${county}_SB`;
 	if (format.includes('CohabFamily')) return `${county}_CF`;
@@ -523,10 +530,10 @@ async function getDatabaseSource(source) {
 async function applyFormatSpecificRules(mention, row) {
 	const format = selectedSource.format || '';
 
-	// Census Formats (1870, 1880)
+	// Census Formats (1860, 1870, 1880, 1900)
 	if (format.includes('Census')) {
 		mention.legal_status = 'F';
-		if (format.includes('1880') || (selectedSource && String(selectedSource.year) === '1880')) {
+		if (format.includes('1880') || format.includes('1900') || (selectedSource && (String(selectedSource.year) === '1880' || String(selectedSource.year) === '1900'))) {
 			mention.household_id = null;
 		}
 	}
@@ -1270,8 +1277,8 @@ async function processPostHocAssertions() {
 
 		// Sort by line number from original_data to maintain enumeration order
 		mentions.sort((a, b) => {
-			const lineA = parseInt(a.original_data?.line || 0);
-			const lineB = parseInt(b.original_data?.line || 0);
+			const lineA = parseInt(getRowValue(a.original_data, 'line') || 0);
+			const lineB = parseInt(getRowValue(b.original_data, 'line') || 0);
 			return lineA - lineB;
 		});
 
@@ -1290,7 +1297,7 @@ async function processPostHocAssertions() {
 		const assertionsToCreate = [];
 
 		// Deduplication: Fetch existing assertions for this source type
-		const whoTag = selectedSource.year == 1880 ? "1880Census" : "1870Census";
+		const whoTag = `${selectedSource.year}Census`;
 		log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
 		const existingAssertionKeys = await fetchExistingAssertionKeys(whoTag);
 		log(`Found ${existingAssertionKeys.size} existing assertions for ${whoTag}.`);
@@ -1303,7 +1310,7 @@ async function processPostHocAssertions() {
 				updateProgress(matchedCount, totalGroups, startTime, 'groups matched');
 			}
 
-			const head = members.find(m => m.head === true);
+			const head = members.find(m => m.head === true || String(getRowValue(m.original_data, 'head') || '').toUpperCase() === 'Y' || String(getRowValue(m.original_data, 'head') || '').toLowerCase() === 'true');
 			if (!head) continue;
 
 			for (let i = 0; i < members.length; i++) {
@@ -1315,15 +1322,15 @@ async function processPostHocAssertions() {
 
 				let predicate = null;
 				let confidence = 0.5;
-				let who = "1870Census";
+				let who = `${selectedSource.year}Census`;
 
-				const is1880 = selectedSource.year == 1880;
+				const isRelationBased = selectedSource.year == 1880 || selectedSource.year == 1900 || selectedSource.format.includes('1900');
 
-				if (is1880) {
-					who = "1880Census";
+				if (isRelationBased) {
+					who = `${selectedSource.year}Census`;
 					confidence = 0.9;
-					// 1880 Census Logic (Relation-based)
-					const relation = self.original_data?.relation;
+					// 1880/1900 Census Logic (Relation-based)
+					const relation = getRowValue(self.original_data, 'relation');
 					if (relation && relation.toLowerCase() !== "self") {
 						const relationMap = {
 							"wife": "isSpouseOf",
@@ -1335,7 +1342,7 @@ async function processPostHocAssertions() {
 							"mother": "isParentOf",
 							"grandfather": "isGrandParentOf",
 							"grandmother": "isGrandParentOf",
-							"uncle": "isPiblingeOf",
+							"uncle": "isPiblingOf",
 							"aunt": "isPiblingOf",
 							"cousin": "isCousinOf",
 							"nephew": "isNiblingOf",
@@ -1373,8 +1380,8 @@ async function processPostHocAssertions() {
 				}
 
 				if (predicate) {
-					let subjId = head.mention_id;
-					let objId = self.mention_id;
+					let subjId = isRelationBased ? self.mention_id : head.mention_id;
+					let objId = isRelationBased ? head.mention_id : self.mention_id;
 
 					if (subjId && objId) {
 						const aKey = `${subjId}|${predicate}|${objId}`;
@@ -1743,7 +1750,7 @@ async function processChurchAssertions(mentions) {
 async function processSlaveBirthAssertions(mentions) {
 	log('Creating assertions for Slave Birth records...');
 
-	const county = selectedSource.county || 'AUG';
+	const county = getCountyPrefix(selectedSource.county || 'AUG');
 	const whoTag = `${county}-SB`;
 
 	log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
@@ -1828,7 +1835,7 @@ async function processSlaveBirthAssertions(mentions) {
 async function processCohabChildAssertions(mentions) {
 	log('Creating assertions for Cohabitation Child records...');
 
-	const county = selectedSource.county || 'AUG';
+	const county = getCountyPrefix(selectedSource.county || 'AUG');
 	const whoTag = `${county}-CC`;
 
 	log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
@@ -1879,7 +1886,7 @@ async function processCohabChildAssertions(mentions) {
 async function processCohabFamilyAssertions(mentions) {
 	log('Creating isSpouseOf assertions for Cohabitation Family records...');
 
-	const county = selectedSource.county || 'AUG';
+	const county = getCountyPrefix(selectedSource.county || 'AUG');
 	const whoTag = `${county}-CF`;
 
 	log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);

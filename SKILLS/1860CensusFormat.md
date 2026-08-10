@@ -74,6 +74,8 @@ description: Format instructions for 1870CensusFormat
 
 **After-processing in Google Sheets**
 
+	*Copy from Ed*
+
 	There is a spreadsheet with more or less the same information as the Main2 sheet in Sheet 2 of this spreadsheet.
     
 	It has some data in columns I want to add the Main sheet in the following columns {
@@ -94,5 +96,28 @@ description: Format instructions for 1870CensusFormat
 
 	Don't delete any rows, but match only the first 5000 rows in the Main sheet.
 
+	
 
 
+
+
+
+	for each row {
+		 if district column == "Fisherville-2" and the family column is not NULL,
+		 then add 3317 to the value in the family column 
+		 if district column == ""Fisherville-2" and the dwelling column is not NULL,
+		 then add 2771 to the value in the dwelling column 
+
+		 }
+
+
+*1800 Family/Dwelling*
+
+	familyNum = 1;
+	For each row {
+		if (head == "Y") {
+			copy familyNum to family and dwelling columns
+			continue copying until the next head is found
+			increment familyNum
+			}
+		}

@@ -123,15 +123,30 @@ function proxyRequest(targetUrl, req, res) {
 
 	proxyReq.on('error', (err) => {
 		console.error(`Proxy request error for ${targetUrl}:`, err.message);
-		res.statusCode = 502;
-		res.setHeader('Content-Type', 'text/plain');
-		res.end(`Bad Gateway: Could not connect to API at ${API_TARGET}`);
+		if (!res.headersSent) {
+			res.statusCode = 502;
+			res.setHeader('Content-Type', 'text/plain');
+			res.end(`Bad Gateway: Could not connect to API at ${API_TARGET}`);
+		}
+	});
+
+	req.on('error', (err) => {
+		console.error('Client request error:', err.message);
+	});
+
+	res.on('error', (err) => {
+		console.error('Response error:', err.message);
 	});
 
 	req.pipe(proxyReq);
 }
 
+process.on('uncaughtException', (err) => {
+	console.error('Uncaught Exception:', err);
+});
+
 server.listen(PORT, () => {
 	console.log(`Server is running at http://localhost:${PORT}/`);
 	console.log(`Proxying /api/* requests to ${API_TARGET}/*`);
 });
+

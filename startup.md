@@ -9,7 +9,8 @@ When starting up the project, follow these steps:
    ```
 
 3. **Start Local Web Server on Port 8000**:
-   Start a simple local web server to serve static files and proxy API requests.
+   Close any existing local web servers on this port
+   Start a simple local web server to serve static files and proxy API requests on port 8000.
    ```bash
    node postGresServer.js
    ```
