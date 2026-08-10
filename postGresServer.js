@@ -145,6 +145,8 @@ process.on('uncaughtException', (err) => {
 	console.error('Uncaught Exception:', err);
 });
 
+process.stdin.resume();
+
 server.listen(PORT, () => {
 	console.log(`Server is running at http://localhost:${PORT}/`);
 	console.log(`Proxying /api/* requests to ${API_TARGET}/*`);
