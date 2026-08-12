@@ -41,6 +41,8 @@ description: Format instructions for SlaveScheduleFormat
 
 **Translation instructions**
 
+	- When ingesting an 1850 slave schedule follow @1850CensusFormat.md.
+	- When ingesting an 1860 slave schedule follow @1860CensusFormat.md.
 	- The source_year field is set to 1850 or 1860.
 	- Source is set to county-SS-source_year (i.e ALB-SS-1860)
 	- The original_data field is set to the entire row as a JSONB object.

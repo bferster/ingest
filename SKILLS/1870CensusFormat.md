@@ -76,3 +76,6 @@ description: Format instructions for 1870CensusFormat
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-CN-1870-23, where  "ALB" is the county, "CN" is the source type, "1870" is the year and "23" is the line number from the line field in the row. 
 	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-CN-1870-23.1, ALB-CN-1870-23.2 for the second, etc.
+
+**Assertions**
+	- Do not create any assertions for this source

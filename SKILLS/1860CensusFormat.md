@@ -1,11 +1,11 @@
 ---
-name: 1870CensusFormat
-description: Format instructions for 1870CensusFormat
+name: 1860CensusFormat
+description: Format instructions for 1860CensusFormat
 ---
 
-**1870 CENSUS FORMAT**
+**1860 CENSUS FORMAT**
 
-	This file is a transcription of the US census for 1870 and is a table with 17 columns. 
+	This file is a transcription of the US census for 1860 and is a table with 15 columns. 
 	It was made by an enumerator person going dwelling to dwelling. 
 	Each row represents one person living in that household. 
 	It is the first census to list non-white people by name. 
@@ -17,6 +17,7 @@ description: Format instructions for 1870CensusFormat
 	- The following columns represent information about the person in a row. 	
 	- Some fields may be blank {
 		- line - A unique identifier for the row.
+		- original_line - Line number from original census record.
 		- district - The post office of the enumeration district.
 		- dwelling - A number used by the enumerator to identify a unique household, in order of visitation.
 		- family - A number used by the enumerator to identify a unique family, in order of visitation.
@@ -24,38 +25,27 @@ description: Format instructions for 1870CensusFormat
 		- first_name - The given name.
 		- middle_name - The middle name or initial
 		- last_name - The surname.
-		- age - The age of the person in 1870.
+		- age - The age of the person in 1860.
 		- birth_year - The year the person was born. May be inaccurate +/- 5 years.
 		- gender - The sex of the person. Can be F for female or M for male.
 		- race - The race of the person. B, W, M, I, C or Y.
-		- occupation - The work role of the person.
 		- birth_place - Where the person was born.
-		- re_value - The value of the person’s real estate owned.
-		- pe_value - The value of the person’s personal property owned.
-		- marry_month - Month they were married, if in that year.
-		- school - Y if they attended school
-		- read - "Y" if they can read
-		- write - "Y" if they can write 
-		- condition - Whether deaf and dumb, blind, insane, or idiotic.
-		- m21- Male citizen of the U.S. of 21 years or older.
-		- vote - Right to vote is denied or abridged on other grounds than rebellion or other crime.
-		- head - "Y" if the person is the head of the household.
+		- page - Page number in census book.
 		}
 
 **Example rows**
 
-	| line | district | dwelling | family | full_name | first_name | middle_name | last_name | age | birth_year | gender | race | occupation | birth_place | page | re_value | pe_value | head |
-	| ---- | -------- | -------- | ------ | --------- | ---------- | ----------- | --------- | --- | ---------- | ------ | ---- | ---------- | ----------- | ---- | -------- | -------- | ---- |
-	| 1    |          |          |        | Thomas Smith | Thomas  |             | Smith     | 55  | 1805       | M      | W    |            | VA          | 77   |          |          |      |
-	| 2    |          |          |        | Lucy Smith  | Lucy     |             | Smith     | 55  | 1805       | F      | W    |            | VA          | 77   |          |          |      |
-	| 3    |          |          |        | Mary Frances Smith | Mary | Frances  | Smith     | 23  | 1837       | F      | W    |            | VA          | 77   |          |          |      |
-	| 4    |          |          |        | Nancy Elen Smith | Nancy | Elen      | Smith     | 21  | 1839       | F      | W    |            | VA          | 77   |          |          |      |
-	| 5    |          |          |        | Martha Cornelia Smith | Martha | Cornelia | Smith| 20  | 1840       | F      | W    |            | VA          | 77   |          |          |      |
-	| 6    |          |          |        | Lucy Agnus Smith | Lucy | Agnus       | Smith    | 17  | 1843       | F      | W    |            | VA          | 77   |          |          |      |
-	| 7    |          |          |        | Benjamin Wilson | Benjamin |          | Wilson   | 25  | 1835       | M      | W    |            | VA          | 77   |          |          |      |
-	| 8    |          |          |        | John Paris  | John      |             | Paris    | 40  | 1820       | M      | W    |            | VA          | 77   |          |          |      |
-	| 9    |          |          |        | Nancy C Pari | Nancy    | C           | Paris    | 44  | 1816       | F      | W    |            | VA          | 77   |          |          |      |
-	| 10   |          |          |        | Hannah Paris | Hannah   |             | Paris    | 75  | 1785       | F      | W    |            | VA          | 77   |          |          |      |
+| line | original_line | district | dwelling | family | full_name | first_name | middle_name | last_name | age | birth_year | gender | race | birth_place | page |
+| ---- | ------------- | -------- | -------- | ------ | --------- | ---------- | ----------- | --------- | --- | ---------- | ------ | ---- | ----------- | ---- |
+| 1    | 1             | 1st District | 377  | 427    | Thomas Smith | Thomas  |             | Smith     | 55  | 1805       | M      | W    | VA          | 77   |
+| 2    | 2             | 1st District | 377  | 427    | Lucy Smith  | Lucy     |             | Smith     | 55  | 1805       | F      | W    | VA          | 77   |
+| 3    | 3             | 1st District | 377  | 427    | Mary Frances Smith | Mary | Frances  | Smith     | 23  | 1837       | F      | W    | VA          | 77   |
+| 4    | 4             | 1st District | 377  | 427    | Nancy Elen Smith | Nancy | Elen      | Smith     | 21  | 1839       | F      | W    | VA          | 77   |
+| 5    | 5             | 1st District | 377  | 427    | Martha Cornelia Smith | Martha | Cornelia | Smith| 20  | 1840       | F      | W    | VA          | 77   |
+| 6    | 6             | 1st District | 377  | 427    | Lucy Agnus Smith | Lucy | Agnus       | Smith    | 17  | 1843       | F      | W    | VA          | 77   |
+| 7    | 7             | 1st District | 378  | 428    | Benjamin Wilson | Benjamin |          | Wilson   | 25  | 1835       | M      | W    | VA          | 77   |
+| 8    | 8             | 1st District | 379  | 429    | John Paris  | John      |             | Paris    | 40  | 1820       | M      | W    | VA          | 77   |
+| 9    | 9             | 1st District | 379  | 429    | Nancy C Paris | Nancy   | C           | Paris    | 44  | 1816       | F      | W    | VA          | 77   |
 
 **Translation instructions**
 
@@ -70,6 +60,9 @@ description: Format instructions for 1870CensusFormat
 
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-CN-1860-23, where  "ALB" is the county, "CN" is the source type, "1860" is the year and "23" is the line number from the line field in the row.
+
+**Assertions**
+	- Do not create any assertions for this source
 
 
 **After-processing in Google Sheets**
