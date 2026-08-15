@@ -73,38 +73,20 @@ description: Format instructions for 1860CensusFormat
     
 	It has some data in columns I want to add the Main sheet in the following columns {
 		dwelling
-        district
-        family
-		occupation
+  		occupation
     	}
     
 	For each row in the main sheet {
 		if trimmed full_name, age, race, and gender fields match in both sheets {
-			- copy the district value that matches into the matching row's district column in the Main sheet.
 			- copy the dwelling value that matches into the matching row's dwelling column in the Main sheet.
-			- copy the family value that matches into the matching row's family column in the Main sheet.
 			- copy the occupation value that matches into the matching row's occupation column in the Main sheet.
 			}
 		}
 
 	Don't delete any rows, but match only the first 5000 rows in the Main sheet.
 
-	
 
-
-
-
-
-	for each row {
-		 if district column == "Fisherville-2" and the family column is not NULL,
-		 then add 3317 to the value in the family column 
-		 if district column == ""Fisherville-2" and the dwelling column is not NULL,
-		 then add 2771 to the value in the dwelling column 
-
-		 }
-
-
-*1800 Family/Dwelling*
+*1700/1800 Family/Dwelling*
 
 	familyNum = 1;
 	For each row {

@@ -330,11 +330,16 @@ processBtn.addEventListener('click', async () => {
 function deduplicateBatchByMentionId(batch) {
 	if (!batch || batch.length === 0) return batch;
 	const map = new Map();
+	let dropped = 0;
 	batch.forEach(item => {
 		if (item && item.mention_id) {
+			if (map.has(item.mention_id)) dropped++;
 			map.set(item.mention_id, item);
 		}
 	});
+	if (dropped > 0) {
+		log(`Warning: dropped ${dropped} row(s) in batch due to duplicate mention_id.`, true);
+	}
 	return Array.from(map.values());
 }
 
@@ -499,7 +504,7 @@ async function prepareMention(row, rowIndex = -1) {
 		family_id: rowIndex >= 0 ? (familyMap.get(rowIndex) || null) : null
 	};
 
-	applyFormatSpecificRules(mention, row);
+	await applyFormatSpecificRules(mention, row);
 
 	if (mention.last_name && String(mention.last_name).trim() !== '') {
 		const cleanLast = String(mention.last_name).trim();
@@ -862,11 +867,15 @@ async function processPostHocMentions() {
 					const idChunk = ids.slice(j, j + 100);
 					// Quote UUIDs to ensure PostgREST parses them correctly
 					const idList = idChunk.map(id => `"${id}"`).join(',');
-					await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${idList})`, {
+					const patchRes = await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${idList})`, {
 						method: 'PATCH',
 						headers: API_HEADERS,
 						body: JSON.stringify(updateData)
 					});
+					if (!patchRes.ok) {
+						const errText = await patchRes.text();
+						log(`Failed to update group ${key} (rows ${j}-${j + idChunk.length}): ${errText}`, true);
+					}
 				}
 			} catch (err) {
 				log(`Failed to update group ${key}: ${err.message}`, true);
@@ -1269,8 +1278,9 @@ async function processPostHocAssertions() {
 	} else if (selectedSource.format.includes('CohabChild')) {
 		await processCohabChildAssertions(mentions);
 	} else if (selectedSource.format.includes('Census')) {
-		if (selectedSource.year == 1870) {
-			log('Skipping post-hoc assertions for 1870 Census.');
+		const yearNum = parseInt(selectedSource.year);
+		if (yearNum === 1850 || yearNum === 1860 || yearNum === 1870) {
+			log(`Skipping post-hoc assertions for ${selectedSource.year} Census.`);
 			await removeDuplicateAssertions();
 			return;
 		}
@@ -3440,18 +3450,27 @@ async function ingestSingleSource(source, csvData, useLimit) {
 		}
 
 		const row = currentCsvData[i];
+		let mention;
 		try {
-			const mention = await prepareMention(row, i);
-			batch.push(mention);
+			mention = await prepareMention(row, i);
+		} catch (err) {
+			log(`Error preparing row ${i + 1}: ${err.message}`, true);
+			continue;
+		}
 
-			if (batch.length >= BATCH_SIZE || i === totalRows - 1) {
+		batch.push(mention);
+
+		if (batch.length >= BATCH_SIZE || i === totalRows - 1) {
+			const batchSize = batch.length;
+			try {
 				await insertBatch(batch);
-				processedRows += batch.length;
+				processedRows += batchSize;
+			} catch (err) {
+				log(`Error inserting batch of ${batchSize} rows near row ${i + 1}: ${err.message}`, true);
+			} finally {
 				batch = [];
 				updateProgress(processedRows, totalRows, startTime);
 			}
-		} catch (err) {
-			log(`Error processing batch near row ${i + 1}: ${err.message}`, true);
 		}
 	}
 

@@ -5,53 +5,48 @@ description: Format instructions for VitalRecordsFormat
 
 **VITAL RECORDS FORMAT**
 
-	This file is a transcription vital records., such as birth, death, and marriage records.	
+	This file is a transcription vital records., such as birth and death records.	
 	It is a table with 10 columns. 
-	Each row represents an enslaved person, their data and theue enslaver.
 	There may be omissions, duplications, and errors in this data. 
 	Some fields may be not be present in table.
 
 **Field names and descriptions:**
 	
-	- The following columns represent information about the enslaved person	 in a row {
+	- The following columns represent information about the person in a row {
 		- line - A unique identifier for the row
-		- type - The type of vital record. Can be "birth", "death", or "marriage"
-		- full_name - The combination of the first-name, the middle_name, and the last_name separated by spaces 
-		- first_name - The enslaved's given name
-		- middle_name - The enslaved's middle name or initial
-		- last_name - The enslaved's surname
-		- age - The age of the person in 1870
-		- birth_year - The year the person was born.
-		- record_year - The year of the death or marriage record. Empty for birth records
-		- birth_place - The place the person was born. Empty for death or marriage records	
+		- original_line - The original line number from the source
+		- full_name - The combination of the first_name, the middle_name, and the last_name separated by spaces
+		- first_name - The person's given name
+		- middle_name - The person's middle name or initial
+		- last_name - The person's surname
+		- birth_year - The year the person was born
+		- death_year - The year the person died
 		- gender - The sex of the person. Can be F for female or M for male
-		- race - The race of the person. B, W, M, I, C or Y
-		- location - The location of the record
-		- relations - The relations mentioned in the record	
-		- note - Any notes about the record
+		- parents - The parents mentioned in the record
 		}
 
 **Example rows**
 
-	| line | type     | record_year | full_name      | first_name | middle_name | last_name | birth_year | birth_place | race | gender | mother | father | relations | note |
-	|------|----------|-------------|----------------|------------|-------------|-----------|------------|-------------|------|--------|--------|--------|-----------|------|
-	| 1794 | death    | 1871        | Billie Renick  | Billie     |             | Renick    | 1846       | Roanoke     |      |        |        |        |           | Franklin |
-	| 1795 | death    | 1873        | Mary Hoban     | Mary       |             | Hoban     | 1869       |             |      |        |        |        |           | Westmoreland |
-	| 1796 | death    | 1873        | Robert Hoban   | Robert     |             | Hoban     | 1871       |             |      |        |        |        |           | Westmoreland |
-	| 1797 | birth    |             | James          | James      |             |           | 1855       |             | B    | M      | Fanny  |        |           |      |
-	| 1798 | birth    |             | Patsy          | Patsy      |             |           | 1855       |             | B    | F      | Ellen  |        |           |      |
-	| 1799 | birth    |             |                |            |             |           | 1855       |             | B    | M      | Sarah  |        |           |      |
-	| 1800 | marriage | 1871        | Betsy Tyree    | Betsy      |             | Tyree     | 1831       |             | B    | F      | Malinda|        |           | Buck, Watson |
-	| 1801 | marriage | 1871        | Ambrose Walker | Ambrose    |             | Walker    | 1841       |             | B    | M      | Lindsay| James Walker |     | Bowe, Lucy |
-	| 1802 | marriage | 1871        | Bella Jackson  | Bella      |             | Jackson   | 1848       |             | B    | F      | Lizzie | Hiram Jackson |    | Bowe, Lucy |
-	| 1803 | marriage | 1871        | Tandy Wood     | Tandy      |             | Wood      | 1849       |             | B    | M      | Jane   | Peter Wood |       | Mosby, John farm |
+	| line | original_line | full_name | first_name | middle_name | last_name | birth_year | death_year | gender | parents |
+	|------|---------------|-----------|------------|-------------|-----------|------------|------------|--------|---------|
+	| 1 | 1 | Wm S Hawpe | Wm | S | Hawpe | 1810 | 1877 | M | John Hawpe,Mary Hawpe |
+	| 2 | 2 | Willam Newton Houff | Willam | Newton | Houff | 1853 | 1854 | M | Rebecca M Houff,Peter Houff |
+	| 3 | 3 | Adam S. Hawpe | Adam | S | Hawpe | 1804 | 1880 | M | Mary Hawpe, Jno. Hawpe |
+	| 4 | 4 | Jno T Hawpe | Jno | T | Hawpe | 1870 | 1877 | M | Jno T Hawpe,Ida C Hawpe |
+	| 5 | 5 | Jas S Hawpe | Jas | S | Hawpe | 1836 | 1889 | M | Adam Hawpe,Margt. Hawpe |
+	| 6 | 6 | Katie Hawpe | Katie | | Hawpe | 1887 | 1888 | F | Annie Hawpe,A H Hawpe |
+	| 7 | 7 | Ida Cliffton Hawpe | Ida | Cliffton | Hawpe | 1855 | 1877 | F | Elizabeth Allen,Bart Allen |
+	| 8 | 8 | Cloved L Houff | Cloved | L | Houff | 1870 | 1871 | M | Benjamin F Houff,Mary S Houff |
+	| 9 | 9 | Lucy Ann Haupe | Lucy | Ann | Haupe | 1846 | 1858 | F | Adamm Haupe,Margaret Haupe |
+	| 10 | 10 | Cicero Preston Haupe | Cicero | Preston | Haupe | 1889 | 1890 | M | Geo C Haupe,Mary E Haupe |
 
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.
 	- The source_year field is set to the year in the record_year field.
 	- The original_data field is set to the entire row as a JSONB object.
-	- The confidence field is set to 0.84.
+	- person's name populate the full_name, first_name, middle_name, and last_name fields.
+	- The confidence field is set to 0.9.
 	- Apply the normalization as described in @Normalize.md
 	- Create mention_id as decribed below
 	- Add mention to mentions table
@@ -59,45 +54,38 @@ description: Format instructions for VitalRecordsFormat
 **Creating the mention_id and source**
 
 	- The county for this source is "ALB".
-	- Instead of getting source from sources.csv we will create the source as follows:
-		- if the type field is "birth", the is "VRB"
-		- if the type field is "death", the prefix is "VRD"
-		- if the type field is "marriage", the prefix is "VRM"
-	- The source is created as follows: for example: ALB-VRB-1, where  "ALB" is the county, "VRB" is the prefix
+	- The source is created as follows: for example: ALB-VR-1, where  "ALB" is the county, "VR" is the prefix
 	- The mention_id is created as follows:
-		- Each source has a unique prefix: for example: ALB-VRB-1, where  "ALB" is the county, "VRB" is the prefix and "1" is the line number from the line field in the row. 
-	- If there is already an identical mention_id within this source append a number to it to differentiate it, like this for the first one: ALB-VRB-1.1, ALB-VRB-1.2 for the second, etc.
+		- Each source has a unique prefix: for example: ALB-VR-1, where  "ALB" is the county, "VR" is the prefix and "1" is the line number from the line field in the row. 
+
+**Add person mention**
+
+	- Add the full_name, first_name, middle_name, and last_name fields.
+	- Apply the normalization as described in @Normalize.md
+	- Create mention_id as decribed above
+	- Add mention to mentions table
 
 **Add parent mentions**
 
 	- This occurs after all row mentions have been added to the mentions table
 	- for each mention added after ingestion of this source {
-		- create mention_id as decribed above
-		- if mother field or father field in original_data is not empty add an mention for the mother or father {
-			- The gender field is set to "F" for the mother or "M" for the father.
-			- The source_year field is set to the year in the record_year field.
-			- The original_data field is set to the entire row as a JSONB object
-			- The full_name field is set to the mother or father field
-			- The first_name, middle_name, and last_name fields are set to parts of the mother or father field {
-				- Remove all punctuation from full_name
-				- If the full_name has only one word, then add that word to last_name and first_name.
-				- If the full_name has two words, then first_name is the first word and last_name is the last word.
-				- If the full_name has more than two words, then first_name is the first word, middle_name is the second word, and last_name is the last word.
-				- If the full_name has a jr or sr or or ii or iii or iv 2nd or 3rd or 4th or 5th, use the word before it as the last_name.	
-			}
+		- split parents by comma
+		- set gender, birth_year, death_year fields to NULL
+		- create first new parent mention
+			- set new parent mention_id with new mention_id with format: for example: ALB-VR-1.1, where  "ALB" is the county, "VR" is the prefix and "1.1" is the index for first parent.
+		- if parents == 2 then create second new parent mention
+			- set new parent mention_id with new mention_id with format: for example: ALB-VR-1.2, where  "ALB" is the county, "VR" is the prefix and "1.2" is the index for second parent.
 		- Apply the normalization as described in @Normalize.md.
-		- The confidence field is set to 0.85.
 		- Add mention to mentions table.
 		}
 		
 **Add assertions**
 
 	- This occurs after all parent mentions have been added to the mentions table.
-	- if mother field or father field in original_data is not empty add an assertion for the mother of father {
-		- Add assertion {
+	- if a new parent mentions arev added, add an new assertion for each:
 			subject: parent's mention_id.
 			predicate: "isParentOf".
-			object: child's mention_id.
+			object: person's mention_id.
 			who: "vitalRecords". 
 			start_year: record_year.
 			end_year: "".	
@@ -105,3 +93,24 @@ description: Format instructions for VitalRecordsFormat
 			}
 		- Add assertion to assertions table.
 
+
+**Sheets inport instructions**
+
+	The relation column contains information about parents needs to be extracted, and places into the parent column.
+	the parent column constain the parents: parent1, parent2
+
+	For example:
+		"Death Â June 1894Â 
+		Pond Gap, Augusta, Virginia, United StatesÂ 
+		Birth Â June 1888Â 
+		Augusta, VaÂ 
+		Age 6 years
+		Parents Ada B Reese, Geo G Reese"
+
+		Should convert to: "Ada B Reese, Geo G Reese"
+
+	Unmerge cells for all merged cells
+
+**Original source**
+
+	https://www.familysearch.org/en/search/record/results?count=100&offset=2500&q.birthLikeDate.exact=on&q.birthLikeDate.from=1700&q.birthLikeDate.to=1900&q.birthLikePlace=Fauquier%2C%20Virginia%2C%20United%20States&q.birthLikePlace.exact=on&q.miscKeyword=augusta&q.recordCountry=United%20States&q.recordSubcountry=United%20States%2CVirginia&c.collectionId=on&f.collectionId=3940896
