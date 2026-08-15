@@ -45,8 +45,9 @@ function getMentionPrefix(format, county, sourceYear, row) {
 		let year = sourceYear || '1870';
 		if (format.includes('1900')) year = '1900';
 		else if (format.includes('1880')) year = '1880';
-		else if (format.includes('1860')) year = '1860';
 		else if (format.includes('1870')) year = '1870';
+		else if (format.includes('1860')) year = '1860';
+		else if (format.includes('1850')) year = '1850';
 		return `${cPrefix}-CN-${year}`;
 	} else if (format.includes('FindAGrave')) {
 		return `${cPrefix}-FG`;
@@ -65,12 +66,7 @@ function getMentionPrefix(format, county, sourceYear, row) {
 	} else if (format.includes('CohabChild') || format.includes('Cohab')) {
 		return `${cPrefix}-CC`;
 	} else if (format.includes('VitalRecord')) {
-		const rType = (row && (row.type || row.Type || '')) ? String(row.type || row.Type).toLowerCase() : '';
-		let pfx = 'VR';
-		if (rType.includes('birth')) pfx = 'VRB';
-		else if (rType.includes('death')) pfx = 'VRD';
-		else if (rType.includes('marriage')) pfx = 'VRM';
-		return `${cPrefix}-${pfx}`;
+		return `${cPrefix}-VR`;
 	}
 	return `${cPrefix}-GEN`;
 }
@@ -187,10 +183,10 @@ function populateSourceDropdown() {
 	const selectedCounty = countySelect ? countySelect.value : null;
 
 	sourcesData.forEach((source, index) => {
-		if (source.display_name && (!selectedCounty || source.county === selectedCounty)) {
+		if ((source.title || source.display_name) && source.county && (!selectedCounty || source.county === selectedCounty)) {
 			const option = document.createElement('option');
 			option.value = index;
-			option.textContent = source.display_name;
+			option.textContent = source.title || source.display_name;
 			sourceSelect.appendChild(option);
 		}
 	});
@@ -199,6 +195,7 @@ function populateSourceDropdown() {
 		sourceSelect.addEventListener('change', () => {
 			if (sourceSelect.value !== "") {
 				isIngestAllMode = false;
+				if (processBtn) processBtn.textContent = 'Agree & Process File';
 				loadSourcePreview();
 			} else {
 				previewSection.classList.add('hidden');
@@ -208,6 +205,8 @@ function populateSourceDropdown() {
 
 		if (countySelect) {
 			countySelect.addEventListener('change', () => {
+				isIngestAllMode = false;
+				if (processBtn) processBtn.textContent = 'Agree & Process File';
 				populateSourceDropdown();
 				previewSection.classList.add('hidden');
 				progressSection.classList.add('hidden');
@@ -219,12 +218,33 @@ function populateSourceDropdown() {
 				const val = actionSelect.value;
 				if (!val) return;
 				if (val === 'expand_assertions') {
+					if (!confirm('Are you sure you want to expand assertions? This will compute the deductive closure of the assertions table.')) {
+						actionSelect.value = '';
+						return;
+					}
 					if (typeof expandAssertions === 'function') await expandAssertions();
 				} else if (val === 'create_narratives') {
+					if (!confirm('Are you sure you want to create narratives?')) {
+						actionSelect.value = '';
+						return;
+					}
 					if (typeof ContenderNarratives === 'function') await ContenderNarratives();
 				} else if (val === 'ingest_all') {
-					await ingestAllSources();
+					isIngestAllMode = true;
+					const selectedCounty = countySelect ? countySelect.value : null;
+					const countySources = sourcesData.filter(source => (source.title || source.display_name) && source.county && (!selectedCounty || source.county === selectedCounty));
+					const validSource = countySources.find(s => s.url && s.url.trim().startsWith('http')) || countySources[0];
+					if (validSource) {
+						const globalIndex = sourcesData.indexOf(validSource);
+						if (globalIndex !== -1 && sourceSelect) {
+							sourceSelect.value = globalIndex;
+							await loadSourcePreview();
+						}
+					}
+					if (processBtn) processBtn.textContent = 'Agree & Process All Sources';
+					log(`"Ingest all sources" mode staged for county ${selectedCounty || 'selected'}. Sample data loaded. Set your row limit options and click "Agree & Process All Sources" to start batch ingestion.`);
 				}
+				actionSelect.value = '';
 			});
 		}
 
@@ -239,8 +259,16 @@ async function loadSourcePreview() {
 
 	selectedSource = sourcesData[selectedIndex];
 	const url = selectedSource.url;
+	const sourceLabel = selectedSource.title ? `${selectedSource.title} (${selectedSource.display_name})` : selectedSource.display_name;
 
-	log(`Loading data from URL: ${url}`);
+	if (!url || !url.trim().startsWith('http')) {
+		log(`Source "${sourceLabel}" does not have a valid URL configured (${url || 'empty'}).`);
+		previewSection.classList.add('hidden');
+		processBtn.disabled = true;
+		return;
+	}
+
+	log(`Loading data for "${sourceLabel}" from URL: ${url}`);
 	previewSection.classList.add('hidden');
 
 	Papa.parse(url, {
@@ -324,6 +352,7 @@ processBtn.addEventListener('click', async () => {
 		processBtn.disabled = false;
 		stopBtn.disabled = true;
 		isIngestAllMode = false; // Reset mode after completion
+		processBtn.textContent = 'Agree & Process File';
 	}
 });
 
@@ -528,7 +557,7 @@ async function getDatabaseSource(source) {
 	if (format.includes('FreeBlackRegister')) return `${county}_FBR`;
 	if (format.includes('FindAGrave')) return `${county}_FindAGrave`;
 	if (format.includes('FreedmansList')) return `${county}_FL-1865`;
-	if (format.includes('VitalRecord')) return `${county}_VR_1715`;
+	if (format.includes('VitalRecord')) return `${county}_VR`;
 	return source.display_name;
 }
 
@@ -595,12 +624,16 @@ async function applyFormatSpecificRules(mention, row) {
 
 	// VitalRecord
 	if (format.includes('VitalRecord')) {
-		mention.confidence = 0.84;
-		if (row.record_year) {
-			const yr = parseInt(row.record_year);
+		mention.confidence = 0.9;
+		const rYear = getRowValue(row, 'record_year');
+		if (rYear) {
+			const yr = parseInt(rYear);
 			if (!isNaN(yr)) mention.source_year = yr;
 		} else if (row.birth_year) {
 			const yr = parseInt(row.birth_year);
+			if (!isNaN(yr)) mention.source_year = yr;
+		} else if (row.death_year) {
+			const yr = parseInt(row.death_year);
 			if (!isNaN(yr)) mention.source_year = yr;
 		}
 	}
@@ -1143,75 +1176,68 @@ async function processVitalRecordPostHoc(mentions) {
 	const total = mentions.length;
 	const startTime = Date.now();
 
-	idGenerator = new MentionIdGenerator();
-	for (const m of mentions) {
-		const r = m.original_data;
-		if (!r) continue;
-		const format = selectedSource.format || '';
-		const county = selectedSource.county || 'AUG';
-		const prefix = getMentionPrefix(format, county, selectedSource.year, r);
-		const line = getRowValue(r, 'line') || '';
-		const baseId = line ? `${prefix}-${line}` : `${prefix}`;
-		let count = idGenerator.usedIds[baseId] || 0;
-		count++;
-		idGenerator.usedIds[baseId] = count;
-	}
-
 	const parentsToCreate = [];
+	const format = selectedSource.format || '';
+	const county = selectedSource.county || 'AUG';
+	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
-	for (const childMention of mentions) {
+	for (const personMention of mentions) {
 		processed++;
 		if (processed % 100 === 0 || processed === total) {
 			updateProgress(processed, total, startTime, 'records scanned for parents');
 		}
-		const row = childMention.original_data;
-		if (!row) continue;
 
-		const motherName = getRowValue(row, 'mother');
-		const fatherName = getRowValue(row, 'father');
-		const cleanMotherName = motherName ? motherName.replace(/[.,]/g, '').trim() : '';
-		const cleanFatherName = fatherName ? fatherName.replace(/[.,]/g, '').trim() : '';
-
-		if (childMention.full_name === motherName || childMention.full_name === fatherName) {
+		// Skip if this is already a parent mention (e.g. has .1 or .2 suffix)
+		if (personMention.mention_id && personMention.mention_id.includes('.')) {
 			continue;
 		}
 
-		const parents = [
-			{ name: motherName, gender: 'F' },
-			{ name: fatherName, gender: 'M' }
-		];
+		const row = personMention.original_data;
+		if (!row) continue;
 
-		for (const p of parents) {
-			if (p.name && p.name.trim()) {
-				const fullName = p.name.replace(/[.,]/g, '').trim();
-				const { first, middle, last } = parseGeneralName(fullName, true);
-				const format = selectedSource.format || '';
-				const county = selectedSource.county || 'ALB';
-				const prefix = getMentionPrefix(format, county, selectedSource.year, row);
-				const line = getRowValue(row, 'line') || '';
-				const mId = idGenerator.generate(prefix, line);
+		const parentsStr = String(getRowValue(row, 'parents') || getRowValue(row, 'Parents') || '').trim();
+		if (!parentsStr) continue;
 
-				parentsToCreate.push({
-					mention_id: mId,
-					source: prefix,
-					source_year: childMention.source_year,
-					original_data: row,
-					confidence: 0.85,
-					full_name: fullName,
-					first_name: first,
-					middle_name: middle,
-					last_name: last,
-					gender: p.gender,
-					norm_first_name: normalizeFirstName(first),
-					nysiis_last_name: last ? simpleNysiis(last) : null,
-					metaphone_last_name: last ? doubleMetaphone(last) : null
-				});
-			}
+		const parentNames = parentsStr.split(',').map(p => p.trim()).filter(Boolean);
+		if (parentNames.length === 0) continue;
+
+		const line = getRowValue(row, 'line') || personMention.mention_id.split('-').pop() || '1';
+
+		for (let pIdx = 0; pIdx < parentNames.length; pIdx++) {
+			const pName = parentNames[pIdx];
+			if (!pName) continue;
+
+			const { first, middle, last } = parseGeneralName(pName, true);
+			const parentId = `${prefix}-${line}.${pIdx + 1}`;
+
+			const parentMention = {
+				mention_id: parentId,
+				source: prefix,
+				source_year: personMention.source_year,
+				original_data: row,
+				confidence: 0.9,
+				full_name: pName.trim(),
+				first_name: first,
+				middle_name: middle,
+				last_name: last,
+				gender: null,
+				birth_year: null,
+				death_year: null,
+				norm_first_name: normalizeFirstName(first),
+				nysiis_last_name: last ? simpleNysiis(last) : null,
+				metaphone_last_name: last ? doubleMetaphone(last) : null
+			};
+
+			parentsToCreate.push(parentMention);
 		}
 	}
 
-	// Batch write parents in parallel
-	log(`Writing ${parentsToCreate.length} parent mentions...`);
+	if (parentsToCreate.length === 0) {
+		log('No parent mentions to create for Vital Records.');
+		return;
+	}
+
+	log(`Writing ${parentsToCreate.length} parent mentions for Vital Records...`);
 	const BATCH_SIZE = 1000;
 	const batches = [];
 	for (let i = 0; i < parentsToCreate.length; i += BATCH_SIZE) {
@@ -1221,7 +1247,6 @@ async function processVitalRecordPostHoc(mentions) {
 	let parentsWritten = 0;
 	const pStartTime = Date.now();
 	const CONCURRENCY = 10;
-
 	for (let i = 0; i < batches.length; i += CONCURRENCY) {
 		const chunk = batches.slice(i, i + CONCURRENCY);
 		await Promise.all(chunk.map(async (batch) => {
@@ -1234,8 +1259,7 @@ async function processVitalRecordPostHoc(mentions) {
 			updateProgress(parentsWritten, parentsToCreate.length, pStartTime, 'parent mentions written');
 		}));
 	}
-
-	log(`Finished creating ${parentsWritten} parent mentions.`);
+	log(`Successfully added ${parentsWritten} parent mentions.`);
 }
 
 async function processPostHocAssertions() {
@@ -1597,84 +1621,67 @@ async function saveAssertionsBatch(assertions) {
 async function processVitalRecordAssertions(mentions) {
 	log(`Creating Parent-Child assertions for ${mentions.length} Vital Records mentions...`);
 
-	// Deduplication: Fetch existing assertions for vitalRecords
-	log('Checking for existing vitalRecords assertions to avoid duplicates...');
-	const existingAssertionKeys = await fetchExistingAssertionKeys('vitalRecords');
-	log(`Found ${existingAssertionKeys.size} existing assertions for vitalRecords.`);
+	const whoTag = 'vitalRecords';
+	log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
+	const existingAssertionKeys = await fetchExistingAssertionKeys(whoTag);
+	log(`Found ${existingAssertionKeys.size} existing assertions for ${whoTag}.`);
 
-	// Group by original_data line number
-	const groups = {};
+	// Group mentions by base mention ID (e.g. AUG-VR-1)
+	const groups = new Map();
 
 	mentions.forEach(m => {
-		const row = m.original_data;
-		const line = getRowValue(row, 'line');
-		if (!line) return;
+		const mId = m.mention_id || '';
+		const dotIdx = mId.lastIndexOf('.');
+		let baseId = mId;
+		let isParent = false;
+		if (dotIdx !== -1) {
+			baseId = mId.substring(0, dotIdx);
+			isParent = true;
+		}
 
-		if (!groups[line]) groups[line] = { child: null, mother: null, father: null };
-
-		const motherName = getRowValue(row, 'mother');
-		const fatherName = getRowValue(row, 'father');
-		const cleanMotherName = motherName ? motherName.replace(/[.,]/g, '').trim() : '';
-		const cleanFatherName = fatherName ? fatherName.replace(/[.,]/g, '').trim() : '';
-
-		if (cleanMotherName && m.full_name === cleanMotherName && m.gender === 'F') {
-			groups[line].mother = m;
-		} else if (cleanFatherName && m.full_name === cleanFatherName && m.gender === 'M') {
-			groups[line].father = m;
+		if (!groups.has(baseId)) {
+			groups.set(baseId, { person: null, parents: [] });
+		}
+		const g = groups.get(baseId);
+		if (isParent) {
+			g.parents.push(m);
 		} else {
-			// It's the child if it's not a parent we recognized
-			// Prefer the mention created first (lowest ID) as the child
-			if (!groups[line].child || m.mention_id < groups[line].child.mention_id) {
-				groups[line].child = m;
-			}
+			g.person = m;
 		}
 	});
 
-	const assertionBatches = [];
-	const currentBatch = [];
+	const assertionsToCreate = [];
 
-	for (const line in groups) {
-		const { child, mother, father } = groups[line];
-		if (!child) continue;
+	for (const [baseId, group] of groups.entries()) {
+		const person = group.person;
+		if (!person) continue;
 
-		if (mother) {
-			const mKey = `${mother.mention_id}|isParentOf|${child.mention_id}`;
-			if (!existingAssertionKeys.has(mKey)) {
-				currentBatch.push({
-					subject_id: mother.mention_id,
+		const startYear = person.source_year || (person.original_data ? (getRowValue(person.original_data, 'record_year') || getRowValue(person.original_data, 'birth_year')) : null) || parseInt(selectedSource.year) || null;
+
+		for (const parent of group.parents) {
+			const aKey = `${parent.mention_id}|isParentOf|${person.mention_id}`;
+			if (!existingAssertionKeys.has(aKey)) {
+				assertionsToCreate.push({
+					subject_id: parent.mention_id,
 					predicate: 'isParentOf',
-					object_id: child.mention_id,
-					who: 'vitalRecords',
-					start_year: child.source_year,
+					object_id: person.mention_id,
+					who: whoTag,
+					start_year: startYear ? parseInt(startYear) : null,
 					end_year: null,
 					confidence: 0.80
 				});
-				existingAssertionKeys.add(mKey);
+				existingAssertionKeys.add(aKey);
 			}
-		}
-		if (father) {
-			const fKey = `${father.mention_id}|isParentOf|${child.mention_id}`;
-			if (!existingAssertionKeys.has(fKey)) {
-				currentBatch.push({
-					subject_id: father.mention_id,
-					predicate: 'isParentOf',
-					object_id: child.mention_id,
-					who: 'vitalRecords',
-					start_year: child.source_year,
-					end_year: null,
-					confidence: 0.80
-				});
-				existingAssertionKeys.add(fKey);
-			}
-		}
-
-		if (currentBatch.length >= 1000) {
-			assertionBatches.push([...currentBatch]);
-			currentBatch.length = 0;
 		}
 	}
-	if (currentBatch.length > 0) assertionBatches.push(currentBatch);
-	console.log
+
+	log(`Writing ${assertionsToCreate.length} Vital Records assertions...`);
+	const BATCH_SIZE = 1000;
+	const assertionBatches = [];
+	for (let i = 0; i < assertionsToCreate.length; i += BATCH_SIZE) {
+		assertionBatches.push(assertionsToCreate.slice(i, i + BATCH_SIZE));
+	}
+
 	let count = 0;
 	const startTime = Date.now();
 	const CONCURRENCY = 10;
@@ -1688,8 +1695,8 @@ async function processVitalRecordAssertions(mentions) {
 			} catch (err) {
 				log(`Failed to write Vital Record assertion batch: ${err.message}`, true);
 			}
-			updateProgress(count, assertionBatches.length * 100, startTime, 'assertions written'); // Rough estimate for total
 		}));
+		updateProgress(count, assertionsToCreate.length, startTime, 'assertions written');
 	}
 	log(`Created ${count} parent-child assertions for Vital Records.`);
 }
@@ -3203,44 +3210,7 @@ function normalizeFirstName(raw) {
 	return mappedParts.join(' ').trim();
 }
 
-// Post-processing Actions
-actionSelect.addEventListener('change', async (e) => {
-	const action = e.target.value;
-	if (!action) return;
 
-	if (action === 'expand_assertions') {
-		if (!confirm('Are you sure you want to expand assertions? This will compute the deductive closure of the assertions table.')) {
-			actionSelect.value = '';
-			return;
-		}
-		await expandAssertions();
-	} else if (action === 'create_narratives') {
-		if (!confirm('Are you sure you want to create narratives?')) {
-			actionSelect.value = '';
-			return;
-		}
-		await ContenderNarratives();
-	} else if (action === 'ingest_all') {
-		isIngestAllMode = true;
-		log('Ingest all sources action selected. Loading first source preview...');
-		const selectedCounty = countySelect ? countySelect.value : null;
-		const countySources = sourcesData.filter(source => source.display_name && (!selectedCounty || source.county === selectedCounty));
-		if (countySources.length > 0) {
-			const firstSource = countySources[0];
-			const globalIndex = sourcesData.findIndex(s => s.display_name === firstSource.display_name);
-			if (globalIndex !== -1 && sourceSelect) {
-				sourceSelect.value = globalIndex;
-				try {
-					await loadSourcePreview();
-				} catch (err) {
-					log(`Warning: Failed to load preview for first source: ${err.message}`, true);
-				}
-			}
-		}
-	}
-
-	actionSelect.value = '';
-});
 
 async function normalizeMentions() {
 	if (typeof actionSelect !== 'undefined') actionSelect.disabled = true;
@@ -3518,7 +3488,7 @@ async function ingestAllSources(shouldClearData) {
 		}
 
 		const selectedCounty = countySelect ? countySelect.value : null;
-		const countySources = sourcesData.filter(source => source.display_name && (!selectedCounty || source.county === selectedCounty));
+		const countySources = sourcesData.filter(source => (source.title || source.display_name) && source.county && (!selectedCounty || source.county === selectedCounty));
 
 		log(`Found ${countySources.length} sources to ingest for county ${selectedCounty}.`);
 
@@ -3530,14 +3500,20 @@ async function ingestAllSources(shouldClearData) {
 				break;
 			}
 			const source = countySources[idx];
+			const sourceLabel = source.title ? `${source.title} (${source.display_name})` : source.display_name;
 			log(`--------------------------------------------------`);
-			log(`Ingesting source ${idx + 1} of ${countySources.length}: ${source.display_name}`);
+			log(`Ingesting source ${idx + 1} of ${countySources.length}: ${sourceLabel}`);
+
+			if (!source.url || !source.url.trim().startsWith('http')) {
+				log(`Skipping source ${sourceLabel}: No valid URL configured.`);
+				continue;
+			}
 
 			try {
 				const csvData = await parseCsv(source.url);
 				await ingestSingleSource(source, csvData, useLimit);
 			} catch (err) {
-				log(`Failed to ingest source ${source.display_name}: ${err.message}`, true);
+				log(`Failed to ingest source ${sourceLabel}: ${err.message}`, true);
 			}
 		}
 

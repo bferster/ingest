@@ -137,6 +137,13 @@ The process for ingesting a source is:
 
 	After all are generated, remove any duplicate assertions that have the same subject, object_id, and predicate.
 
+**NEW SOURCES**
+
+	I've added new sources to sources.csv file.
+	Make sure all sources:
+		- Follow the formats in their format field table when ingested.
+		- The sources pulldown includes all source title for the county being ingested.
+		- The ingest all sources option includes all source titles for the county being ingested
 
 
 

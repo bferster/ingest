@@ -22,9 +22,8 @@ AUG-CH,1851,"https://docs.google.com/spreadsheets/d/1SEcTFIWiHgFS4G-lMuv0oE0EyWB
 AUG-SB,1853,"https://docs.google.com/spreadsheets/d/1qyowsVe171KUJgJId636dXtBW4i4VeDNcrRMpaygYWE/export?format=csv","SlaveBirthFormat.md","AUG","Slave Births"
 AUG-CC,1866,"https://docs.google.com/spreadsheets/d/1-s92vkRZknCm6EohYFp5smiWlGBH7joDOxQDsu1_IYI/export?format=csv","CohabChildFormat.md","AUG","Cohabitation Children"
 AUG-CF,1866,"https://docs.google.com/spreadsheets/d/1IFgOe5aRjpUGnon4Dw8pdiODx26O8JiDbHkCX7W5WTU/export?format=csv","CohabFamilyFormat.md","AUG","Cohabitation Families"
-AUG-VR,1853,"https://docs.google.com/spreadsheets/d/1QgWi19ygI77m-QTG_Fe2zp3IkBn0GPyBFFVRUPzsa0/export?format=csv","VitalRecordsFormat.md","AUG","Vital Records"
+AUG-VR,1853,"https://docs.google.com/spreadsheets/d/1QgWi19ygI77m-QTG_Fe2zp3IkBn0GPyBFFVRUPzsa00/export?format=csv","VitalRecordsFormat.md","AUG","Vital Records"
 
-https://docs.google.com/spreadsheets/d/1QgWi19ygI77m-QTG_Fe2zp3IkBn0GPyBFFVRUPzsa0
 FAQ-CN-1860,1860,"","1860CensusFormat.md","FAQ","1860 Census"
 FAQ-CN-1870,1870,"https://docs.google.com/spreadsheets/d/1AvfIHKe4KYJ6-5F-VG909466JTj_6zNNISGoQdA0VcQ/export?format=csv","1870CensusFormat.md","FAQ","1870 Census"
 FAQ-CN-1880,1880,"https://docs.google.com/spreadsheets/d/1LF3HPc8RLoGnnZBvcwdjj4s9GC6qexqqjfB6ZDWYbls/export?format=csv","1880CensusFormat.md","FAQ","1880 Census"
@@ -40,5 +39,3 @@ ORF-CN-1860,1860,"https://docs.google.com/spreadsheets/d/1AptRmf8Y6IOVE_hSJ0SHsW
 ORF-CN-1870,1870,"https://docs.google.com/spreadsheets/d/1iEJVqC_ABb4j8RJxF3FTzv4d4cGBDVB3tDHbuQ_9vAo/export?format=csv","1870CensusFormat.md","ORF","1870 Census"
 ORF-CN-1880,1880,"https://docs.google.com/spreadsheets/d/1IZtRr76Sit83zncPJXT1jc3LLJkkd78fhIcZcSjX44Y/export?format=csv","1880CensusFormat.md","ORF","1880 Census"
 ORF-CN-1900,1900,"https://docs.google.com/spreadsheets/d/1bPdwGVh_9UY7khwPszemlL2-hbnuDP5MmtEiF4o0bCM/export?format=csv","1900CensusFormat.md","ORF","1900 Census"
-
-

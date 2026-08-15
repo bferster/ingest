@@ -5,7 +5,7 @@ description: Format instructions for VitalRecordsFormat
 
 **VITAL RECORDS FORMAT**
 
-	This file is a transcription vital records., such as birth and death records.	
+	This file is a transcription vital records, such as birth and death records.	
 	It is a table with 10 columns. 
 	There may be omissions, duplications, and errors in this data. 
 	Some fields may be not be present in table.
@@ -69,6 +69,7 @@ description: Format instructions for VitalRecordsFormat
 
 	- This occurs after all row mentions have been added to the mentions table
 	- for each mention added after ingestion of this source {
+		- get parents value from original_data field
 		- split parents by comma
 		- set gender, birth_year, death_year fields to NULL
 		- create first new parent mention
@@ -82,14 +83,14 @@ description: Format instructions for VitalRecordsFormat
 **Add assertions**
 
 	- This occurs after all parent mentions have been added to the mentions table.
-	- if a new parent mentions arev added, add an new assertion for each:
-			subject: parent's mention_id.
-			predicate: "isParentOf".
-			object: person's mention_id.
-			who: "vitalRecords". 
-			start_year: record_year.
-			end_year: "".	
-			confidence: 0.80.
+	- if new parent mentions are added, add a new assertion for each: {
+			subject: parent's mention_id
+			predicate: "isParentOf"
+			object: person's mention_id
+			who: "vitalRecords"
+			start_year: record_year
+			end_year: ""
+			confidence: 0.80
 			}
 		- Add assertion to assertions table.
 
@@ -97,7 +98,7 @@ description: Format instructions for VitalRecordsFormat
 **Sheets inport instructions**
 
 	The relation column contains information about parents needs to be extracted, and places into the parent column.
-	the parent column constain the parents: parent1, parent2
+	the parents column constain the parents: parent1, parent2
 
 	For example:
 		"Death Â June 1894Â 
