@@ -43,6 +43,7 @@ The following SQL commands define the schema for the various tables needed:
 		death_year SMALLINT,
 		race VARCHAR(1) CHECK (race IN ('B','M','W','C','I','Y','')),
 		gender VARCHAR(1) CHECK (gender IN ('M','F','')),
+		birth_place VARCHAR(255),
 		occupation VARCHAR(100),
 		legal_status VARCHAR(100),
 
@@ -53,8 +54,7 @@ The following SQL commands define the schema for the various tables needed:
 
 		head BOOLEAN,
 		household_id VARCHAR(50),	
-		family_id VARCHAR(50),
-		narrative VARCHAR(255),
+		family_id VARCHAR(50)
 \		);
 
 	ALTER TABLE locations 

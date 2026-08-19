@@ -20,6 +20,7 @@ description: Format instructions for VitalRecordsFormat
 		- middle_name - The person's middle name or initial
 		- last_name - The person's surname
 		- birth_year - The year the person was born
+		- birth_place - The place the person was born
 		- death_year - The year the person died
 		- gender - The sex of the person. Can be F for female or M for male
 		- parents - The parents mentioned in the record
@@ -115,3 +116,5 @@ description: Format instructions for VitalRecordsFormat
 **Original source**
 
 	https://www.familysearch.org/en/search/record/results?count=100&offset=2500&q.birthLikeDate.exact=on&q.birthLikeDate.from=1700&q.birthLikeDate.to=1900&q.birthLikePlace=Fauquier%2C%20Virginia%2C%20United%20States&q.birthLikePlace.exact=on&q.miscKeyword=augusta&q.recordCountry=United%20States&q.recordSubcountry=United%20States%2CVirginia&c.collectionId=on&f.collectionId=3940896
+
+	https://www.familysearch.org/ark:/61903/3:1:3QHN-R3YR-MXT7?lang=en&i=234&personaUrl=%2Fark%3A%2F61903%2F1%3A1%3A6ZGZ-TN9H

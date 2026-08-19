@@ -480,6 +480,9 @@ async function prepareMention(row, rowIndex = -1) {
 	}
 	if (isNaN(computedBirthYear)) computedBirthYear = null;
 
+	const rawBirthPlace = getRowValue(row, 'birth_place') || getRowValue(row, 'birthplace') || getRowValue(row, 'place_of_birth') || getRowValue(row, 'birth_location') || getRowValue(row, 'born_in') || getRowValue(row, 'bplace');
+	const birthPlace = (rawBirthPlace !== null && rawBirthPlace !== undefined && String(rawBirthPlace).trim() !== '') ? String(rawBirthPlace).trim() : null;
+
 	const rawDeathYear = getRowValue(row, 'death_year');
 	const deathYear = (rawDeathYear !== null && rawDeathYear !== undefined && String(rawDeathYear).trim() !== '') ? parseInt(String(rawDeathYear).trim()) : null;
 
@@ -518,6 +521,7 @@ async function prepareMention(row, rowIndex = -1) {
 		middle_name: middleName,
 		last_name: lastName,
 		birth_year: computedBirthYear,
+		birth_place: birthPlace,
 		death_year: isNaN(deathYear) ? null : deathYear,
 		race: mapRace(rawRace),
 		gender: mapGender(rawGender),
@@ -655,6 +659,7 @@ async function applyFormatSpecificRules(mention, row) {
 			mention.legal_status = null;
 			mention.head = true;
 			mention.birth_year = null;
+			mention.birth_place = null;
 			mention.death_year = null;
 			mention.gender = null;
 			mention.race = 'W'; // Set enslaver's race to "W"
@@ -737,6 +742,11 @@ async function applyFormatSpecificRules(mention, row) {
 		if (hBy) {
 			const parsedBy = parseInt(hBy);
 			if (!isNaN(parsedBy)) mention.birth_year = parsedBy;
+		}
+
+		const hBp = getRowValue(row, 'husband_birth_place') || getRowValue(row, 'husband_birthplace');
+		if (hBp && String(hBp).trim() !== '') {
+			mention.birth_place = String(hBp).trim();
 		}
 
 		const hOcc = getRowValue(row, 'husband_occupation');
@@ -960,6 +970,7 @@ async function processChurchEnslaverMentions(mentions) {
 					legal_status: '',
 					race: 'W',
 					norm_race: 'W',
+					birth_place: null,
 					norm_first_name: normalizeFirstName(eFirstName || first),
 					nysiis_last_name: lastVal ? simpleNysiis(lastVal) : null,
 					metaphone_last_name: lastVal ? doubleMetaphone(lastVal) : null
@@ -1001,6 +1012,7 @@ async function processSlaveBirthPostHoc(mentions) {
 				first_name: first,
 				middle_name: middle,
 				last_name: last,
+				birth_place: null,
 				gender: 'F',
 				race: 'B',
 				norm_race: 'B',
@@ -1024,6 +1036,7 @@ async function processSlaveBirthPostHoc(mentions) {
 				first_name: first,
 				middle_name: middle,
 				last_name: last,
+				birth_place: null,
 				race: 'W',
 				norm_race: 'W',
 				legal_status: null,
@@ -1059,6 +1072,9 @@ async function processCohabChildPostHoc(mentions) {
 			const cleanLast = fLast ? fLast.replace(/[.,]/g, '').trim() : '';
 			const fullName = [cleanFirst, cleanLast].filter(Boolean).join(' ');
 
+			const fbp = getRowValue(row, 'father_birth_place') || getRowValue(row, 'father_birthplace');
+			const fatherBirthPlace = (fbp && String(fbp).trim() !== '') ? String(fbp).trim() : null;
+
 			additionalMentions.push({
 				mention_id: `${m.mention_id}.1`,
 				source: m.source,
@@ -1068,6 +1084,7 @@ async function processCohabChildPostHoc(mentions) {
 				full_name: fullName,
 				first_name: cleanFirst,
 				last_name: cleanLast,
+				birth_place: fatherBirthPlace,
 				gender: 'M',
 				race: 'B',
 				norm_race: 'B',
@@ -1116,6 +1133,9 @@ async function processCohabFamilyPostHoc(mentions) {
 				if (!isNaN(parsed)) wifeBirthYear = parsed;
 			}
 
+			const wBp = getRowValue(row, 'wife_birth_place') || getRowValue(row, 'wife_birthplace');
+			const wifeBirthPlace = (wBp && String(wBp).trim() !== '') ? String(wBp).trim() : null;
+
 			wifeMentions.push({
 				mention_id: `${m.mention_id}.1`,
 				source: m.source,
@@ -1127,6 +1147,7 @@ async function processCohabFamilyPostHoc(mentions) {
 				middle_name: cleanMiddle,
 				last_name: cleanLast,
 				birth_year: wifeBirthYear,
+				birth_place: wifeBirthPlace,
 				gender: 'F',
 				race: 'B',
 				norm_race: 'B',
@@ -1220,6 +1241,7 @@ async function processVitalRecordPostHoc(mentions) {
 				first_name: first,
 				middle_name: middle,
 				last_name: last,
+				birth_place: null,
 				gender: null,
 				birth_year: null,
 				death_year: null,
@@ -3458,8 +3480,11 @@ async function ingestSingleSource(source, csvData, useLimit) {
 }
 
 async function ingestAllSources(shouldClearData) {
+	const selectedCounty = countySelect ? countySelect.value : 'AUG';
+	const countyPrefix = getCountyPrefix(selectedCounty || 'AUG');
+
 	if (shouldClearData === undefined) {
-		shouldClearData = confirm('Do you want to clear existing data (mentions and assertions tables) before ingesting all sources?\n\nClick OK to clear data.\nClick Cancel to keep existing data.');
+		shouldClearData = confirm(`Do you want to clear existing data for county ${selectedCounty} (mentions and assertions tables) before ingesting all sources?\n\nClick OK to clear data.\nClick Cancel to keep existing data.`);
 	}
 
 	if (typeof actionSelect !== 'undefined') actionSelect.disabled = true;
@@ -3468,26 +3493,25 @@ async function ingestAllSources(shouldClearData) {
 
 	try {
 		if (shouldClearData) {
-			log('Truncating assertions table...');
-			const resAssert = await fetch(`${POSTGREST_URL}/assertions?assertion_id=not.is.null`, {
+			log(`Clearing assertions table for county ${selectedCounty}...`);
+			const resAssert = await fetch(`${POSTGREST_URL}/assertions?subject_id=like.${countyPrefix}*`, {
 				method: 'DELETE',
 				headers: API_HEADERS
 			});
-			if (!resAssert.ok) throw new Error('Failed to truncate assertions table');
+			if (!resAssert.ok) throw new Error(`Failed to clear assertions table for county ${selectedCounty}`);
 
-			log('Truncating mentions table...');
-			const resMention = await fetch(`${POSTGREST_URL}/mentions?mention_id=not.is.null`, {
+			log(`Clearing mentions table for county ${selectedCounty}...`);
+			const resMention = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${countyPrefix}*`, {
 				method: 'DELETE',
 				headers: API_HEADERS
 			});
-			if (!resMention.ok) throw new Error('Failed to truncate mentions table');
+			if (!resMention.ok) throw new Error(`Failed to clear mentions table for county ${selectedCounty}`);
 
-			log('Tables successfully truncated.');
+			log(`Tables successfully cleared for county ${selectedCounty}.`);
 		} else {
-			log('Skipping truncation of existing data per user selection.');
+			log('Skipping clearing of existing data per user selection.');
 		}
 
-		const selectedCounty = countySelect ? countySelect.value : null;
 		const countySources = sourcesData.filter(source => (source.title || source.display_name) && source.county && (!selectedCounty || source.county === selectedCounty));
 
 		log(`Found ${countySources.length} sources to ingest for county ${selectedCounty}.`);
