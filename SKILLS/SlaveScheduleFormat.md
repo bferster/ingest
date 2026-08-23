@@ -23,6 +23,8 @@ description: Format instructions for SlaveScheduleFormat
 	- birth_year - The year the person was born. May be inaccurate +/- 5 years
 	- gender - The sex of the person. Can be F for female or M for male
 	- race - The race of the person. B, W, M, I, C or Y
+	- district - The district of the person
+	- enumeration - The enumerator and enumerator date/data formatted as enumerator:enumerator_date
 	- status - The name of the enslaver of the person : if this value is "Y" it means that this row is an enslaver.
 	
 **Example rows to ingest**
@@ -45,20 +47,25 @@ description: Format instructions for SlaveScheduleFormat
 	- When ingesting an 1860 slave schedule follow @1860CensusFormat.md.
 	- The source_year field is set to 1850 or 1860.
 	- Source is set to county-SS-source_year (i.e ALB-SS-1860)
-	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.9.	
 	- Apply the normalization as described in @Normalize.md.
 
 **For each row in source**
 
 	- Each row in source lists a person.
-	= if the the status field is "Owner" use the **Add enslaver mention** procedure.
-	= Otherwise use the **Add enslaved mention* procedure.
+	- if the the status field is "Owner" use the **Add enslaver mention** procedure.
+	- Otherwise use the **Add enslaved mention* procedure.
 	
 **Creating the mention_id**
 
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-SS-1850-1, where  "ALB" is the county, "SS" is the source type, "1850" is the year and "1" is the line number from the line field in the row. 
+
+**Add enumeration field**
+
+	- The enumeration field contains the value of the enumerator and the enumerator_data field, separated by a colon.
+	- i.e. "JL:6.23" where "JL" is the enumerator and "6.23" is the enumerator_date.
+	- Put the result in the enumeration field.
 
 **Add enslaver mention**
 

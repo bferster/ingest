@@ -31,7 +31,6 @@ The following SQL commands define the schema for the various tables needed:
 		source VARCHAR(100),
 		source_year SMALLINT, 
 		county VARCHAR(50),
-		original_data JSONB DEFAULT '{}'::jsonb,
 		confidence REAL,
 		
 		full_name VARCHAR(255),
@@ -54,14 +53,14 @@ The following SQL commands define the schema for the various tables needed:
 
 		head BOOLEAN,
 		household_id VARCHAR(50),	
-		family_id VARCHAR(50)
-\		);
+		family_id VARCHAR(50),
+		district VARCHAR(50),
+		enumeration VARCHAR(12)
+		);
 
 	ALTER TABLE locations 
 		ADD CONSTRAINT fk_owner FOREIGN KEY (owner_mention_id) 
 		REFERENCES mentions(mention_id);
-
-	CREATE INDEX idx_mentions_original_data ON mentions USING GIN (original_data);
 
 	CREATE TABLE assertions (
 		assertion_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

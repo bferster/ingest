@@ -30,6 +30,8 @@ description: Format instructions for 1850CensusFormat
 		- race - The race of the person. B, W, M, I, C or Y.
 		- birth_place - Where the person was born.
 		- head - "Y" if the person is the head of the household.
+	- district - The district of the person
+	- enumeration - The enumerator and enumerator date/data formatted as enumerator:enumerator_date
 		}
 
 **Example rows**
@@ -49,7 +51,6 @@ description: Format instructions for 1850CensusFormat
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
-	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.9
 	- The legal_status field is set to "F"
 	- Apply the normalization as described in @Normalize.md
@@ -60,6 +61,12 @@ description: Format instructions for 1850CensusFormat
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: ALB-CN-1850-23, where  "ALB" is the county, "CN" is the source type, "1850" is the year and "23" is the line number from the line field in the row.
 
+**Add enumeration field**
+
+	- The enumeration field contains the value of the enumerator and the enumerator_data field, separated by a colon.
+	- i.e. "JL:6.23" where "JL" is the enumerator and "6.23" is the enumerator_date.
+	- Put the result in the enumeration field.
+				
 **Assertions**
 
 	- Do not create any assertions for this source

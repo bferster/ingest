@@ -46,7 +46,6 @@ description: Format instructions for CohabChildFormat
 
 	- The source_year field is set to 1866.
 	- Set legal_status to NULL.
-	- The original_data field is set to the entire row as a JSONB object.
 	- Set confidence to 0.95.
 	- Create mention_id for each row: ALB-CF-1, where "ALB" is the county, "CF" is the source type, "1" is the line number from the line field in the row. 
 	- Set race to "B" and norm_race to "B".

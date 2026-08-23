@@ -31,6 +31,8 @@ description: Format instructions for 1860CensusFormat
 		- race - The race of the person. B, W, M, I, C or Y.
 		- birth_place - Where the person was born.
 		- page - Page number in census book.
+		- district - The district of the person
+		- enumeration - The enumerator and enumerator date/data formatted as enumerator:enumerator_date
 		}
 
 **Example rows**
@@ -50,7 +52,6 @@ description: Format instructions for 1860CensusFormat
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
-	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.9
 	- The legal_status field is set to "F"
 	- Apply the normalization as described in @Normalize.md
@@ -64,6 +65,12 @@ description: Format instructions for 1860CensusFormat
 **Assertions**
 	- Do not create any assertions for this source
 
+	
+**Add enumeration field**
+
+	- The enumeration field contains the value of the enumerator and the enumerator_data field, separated by a colon.
+	- i.e. "JL:6.23" where "JL" is the enumerator and "6.23" is the enumerator_date.
+	- Put the result in the enumeration field.
 
 **After-processing in Google Sheets**
 

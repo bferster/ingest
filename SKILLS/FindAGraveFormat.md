@@ -47,5 +47,4 @@ description: Format instructions for FindAGraveFormat
 
 	- Most of the fields in file match the same as the mentions' fields.	
 	- The year is "1600".
-	- The original_data field is set to the entire row as a JSONB object.
 	- The confidence field is set to 0.8 apply the normalization as described in @Normalize.md

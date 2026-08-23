@@ -37,7 +37,6 @@ description: Format instructions for CohabChildFormat
 
 	- The source_year field is set to 1866.
 	- Set legal_status to NULL.
-	`- The original_data field is set to the entire row as a JSONB object.
 	- Set confidence to 0.95.
 	- Create mention_id for each row: ALB-CC-1, where "ALB" is the county, "CC" is the source type, "1" is the line number from the line field in the row. 
 	- Set race to "B" and norm_race to "B".
@@ -53,7 +52,7 @@ description: Format instructions for CohabChildFormat
 
 **Add father mention**
 
-	- If the father_first_name and father_last_name fields in original_data are not empty, add a mention for the father:
+	- If the father_first_name and father_last_name fields are not empty, add a mention for the father:
 		- Append .1 to the mention_id (e.g. AUG-CC-1.1).
 		- Set full_name, first_name from the father_first_name and father_last_name fields.
 		- Set gender to "M".
@@ -64,7 +63,7 @@ description: Format instructions for CohabChildFormat
 **Add assertion**
 
 	- This occurs after all mentions have been added to the mentions table.
-	- If father_first_name and father_last_name fields in original_data are not empty:
+	- If father_first_name and father_last_name fields are not empty:
 		- Add assertion {
 			subject: father's mention_id
 			predicate: "isParentOf"

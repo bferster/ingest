@@ -34,7 +34,6 @@ description: Format instructions for Mentions
 		- mention_id - A unique identifier for the row
 		- source - The identifier of the source of the mention
 		- source_year - The year of the source
-		- original_data - The original data of the mention
 		- confidence - The confidence of the mention
 		- full_name - The full name of the person
 		- first_name - The first name of the person
@@ -55,19 +54,18 @@ description: Format instructions for Mentions
 		- household_id - The household ID of the person
 		- family_id - The family ID of the person
 		- metaphone_last_name - The metaphone last name of the person
-		- end_year - The end year of the assertion
-		- who - The who of the assertion
-		- confidence - The confidence of the assertion
+		- district - The enumeration district or district of the person
+		- enumeration - The enumerator and enumerator date/data formatted as enumerator:enumerator_date
 		}
 
 **Example rows**
 
-| mention_id   | source | source_year | original_data                                                                                                                                                         | confidence | full_name       | first_name | middle_name | last_name | birth_year | birth_place | death_year | race | gender | occupation | legal_status | norm_first_name | nysiis_last_name | norm_race | norm_occupation | head | household_id | family_id | metaphone_last_name |
-|--------------|--------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------|-----------------|------------|-------------|-----------|------------|-------------|------------|------|--------|------------|--------------|-----------------|------------------|-----------|-----------------|------|--------------|-----------|---------------------|
-| AUG-CC-200   | AUG-CC | 1866        | {"age": "8", "line": "200", "family": "96", "birth_year": "1858", "first_name": "Ransom", "father_last_name": "Ceasar", "father_first_name": "Oliver"} | 0.95       | Ransom          | Ransom     |             |           | 1858       |             |            | B    |        |            |              | RANSOM          |                  | B         |                 | f    |              | FC1866-96 |                     |
-| AUG-CC-201   | AUG-CC | 1866        | {"age": "25", "line": "201", "family": "99", "birth_year": "1841", "first_name": "Ann", "father_last_name": "Butler", "father_first_name": "Shadrack"} | 0.95       | Ann             | Ann        |             |           | 1841       |             |            | B    |        |            |              | ANN             |                  | B         |                 | f    |              | FC1866-99 |                     |
-| AUG-CC-202   | AUG-CC | 1866        | {"age": "27", "line": "202", "family": "99", "birth_year": "1839", "first_name": "Mary", "father_last_name": "Butler", "father_first_name": "Shadrack"} | 0.95       | Mary            | Mary       |             |           | 1839       |             |            | B    |        |            |              | MARY            |                  | B         |                 | f    |              | FC1866-99 |                     |
-| AUG-CC-203   | AUG-CC | 1866        | {"age": "5", "line": "203", "family": "99", "birth_year": "1861", "first_name": "Alice", "father_last_name": "Butler", "father_first_name": "Shadrack"} | 0.95       | Alice           | Alice      |             |           | 1861       |             |            | B    |        |            |              | ALICE           |                  | B         |                 | f    |              | FC1866-99 |                     |
+| mention_id   | source | source_year | confidence | full_name       | first_name | middle_name | last_name | birth_year | birth_place | death_year | race | gender | occupation | legal_status | norm_first_name | nysiis_last_name | norm_race | norm_occupation | head | household_id | family_id | metaphone_last_name |
+|--------------|--------|-------------|------------|-----------------|------------|-------------|-----------|------------|-------------|------------|------|--------|------------|--------------|-----------------|------------------|-----------|-----------------|------|--------------|-----------|---------------------|
+| AUG-CC-200   | AUG-CC | 1866        | 0.95       | Ransom          | Ransom     |             |           | 1858       |             |            | B    |        |            |              | RANSOM          |                  | B         |                 | f    |              | FC1866-96 |                     |
+| AUG-CC-201   | AUG-CC | 1866        | 0.95       | Ann             | Ann        |             |           | 1841       |             |            | B    |        |            |              | ANN             |                  | B         |                 | f    |              | FC1866-99 |                     |
+| AUG-CC-202   | AUG-CC | 1866        | 0.95       | Mary            | Mary       |             |           | 1839       |             |            | B    |        |            |              | MARY            |                  | B         |                 | f    |              | FC1866-99 |                     |
+| AUG-CC-203   | AUG-CC | 1866        | 0.95       | Alice           | Alice      |             |           | 1861       |             |            | B    |        |            |              | ALICE           |                  | B         |                 | f    |              | FC1866-99 |                     |
 | AUG-CC-204   | AUG-CC | 1866        | {"age": "6", "line": "204", "family": "99", "birth_year": "1860", "first_name": "Betty", "father_last_name": "Butler", "father_first_name": "Shadrack"} | 0.95       | Betty           | Betty      |             |           | 1860       |             |            | B    |        |            |              | ELIZABETH       |                  | B         |                 | f    |              | FC1866-99 |                     |
 | AUG-SB-238.2 | AUG-SB | 1853        | {"line": "238", "name": "Wayt", "gender": "M", "mother": "Cynthia", "birth_year": "1855", "birth_place": "Waynesboro", "reported_by": "Owner", "owner_full_name": "William Chapman"} | 0.95       | William Chapman | William    |             | Chapman   |            |             |            | W    |        |            |              | WILLIAM         | CAPNAN           | W         |                 |      |              |           | XPMN:XPMN           |
 | AUG-SB-239.1 | AUG-SB | 1853        | {"line": "239", "name": "", "gender": "M", "mother": "Ellen", "birth_year": "1855", "birth_place": "Middle River", "reported_by": "Owner", "owner_full_name": "John Givens"} | 0.95       | Ellen           | Ellen      |             | Ellen     |            |             |            | B    | F      |            | E            | ELLEN           | ELAN             | B         |                 |      |              |           | ALN:ALN             |

@@ -40,6 +40,8 @@ description: Format instructions for 1870CensusFormat
 		- m21- Male citizen of the U.S. of 21 years or older.
 		- vote - Right to vote is denied or abridged on other grounds than rebellion or other crime.
 		- head - "Y" if the person is the head of the household.
+		- district - The district of the person
+		- enumeration - The enumerator and enumerator date/data formatted as enumerator:enumerator_date
 		}
 
 **Example rows**
@@ -63,7 +65,6 @@ description: Format instructions for 1870CensusFormat
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
-	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.9
 	- The legal_status field is set to "F"
 	- If the head field is "Y" then set the head field to TRUE	

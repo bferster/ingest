@@ -54,7 +54,6 @@ description: Format instructions for 1880CensusFormat
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
-	- The original_data field is set to the file's entire row as a JSONB object
 	- The confidence field is set to 0.9.
 	- Set household_id to null.
 	- If a new family is detected, i.e. the family number is different from the previous row {

@@ -39,7 +39,6 @@ description: Format instructions for SlaveBirthsFormat
 
 	- Most of the fields in file match the same as the mentions' fields.	
 	- The source_year field is set to the value of the birth_year column.
-	- The original_data field is set to the entire row as a JSONB object.
 	- Set confidence to 0.95.
 	- Create mention_id for each row: ALB-SB-1, where "ALB" is the county, "SB" is the source type, "1" is the line number from the line field in the row. 
 	- Add only field specified. Do not infer any other fields.	
@@ -56,7 +55,7 @@ description: Format instructions for SlaveBirthsFormat
 
 **Add mother mention**
 
-	- If the mother field in original_data is not empty, add a mention for the mother:
+	- If the mother field is not empty, add a mention for the mother:
 		- Append .1 to the mention_id (e.g. AUG-SB-1.1).
 		- Set full_name, first_name from the mother field.
 		- Set gender to "F".

@@ -57,7 +57,6 @@ description: Format instructions for FreeBlackRegisterFormat
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields	
-	- The original_data field is set to the entire row as a JSONB object
 	- The confidence field is set to 0.85.
 	- The legal_status field is set to "F".
 	- If color contains "light" or "mulatto" or "brown" or "olive" or "tawny" {

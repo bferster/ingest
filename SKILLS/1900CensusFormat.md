@@ -39,6 +39,8 @@ description: Format instructions for 1900CensusFormat
 		- sheet - Census sheet number.
 		- years_married - Number of years married.
 		- head - "Y" if the person is the head of the household.
+		- district - The district of the person
+		- enumeration - The enumerator and enumerator date/data formatted as enumerator:enumerator_date
 		}
 
 **Example rows**
@@ -58,7 +60,6 @@ description: Format instructions for 1900CensusFormat
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
-	- The original_data field is set to the file's entire row as a JSONB object
 	- The confidence field is set to 0.9.
 	- Set household_id to null.
 	- If a new family is detected, i.e. the family number is different from the previous row {
