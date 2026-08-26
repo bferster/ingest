@@ -812,13 +812,13 @@ async function processPostHocMentions() {
 	const county = selectedSource.county || 'ALB';
 	const prefix = getMentionPrefix(format, county, selectedSource.year, null);
 
-	// Deduplicate mentions before further processing
-	await removeDuplicateMentions(prefix);
-
 	if (selectedSource.format.includes('Census')) {
 		log('Household and family IDs pre-populated during ingestion. Skipping post-hoc updates.');
 		return;
 	}
+
+	// Deduplicate mentions before further processing for non-census sources
+	await removeDuplicateMentions(prefix);
 
 	let allMentions = [];
 	let offset = 0;
@@ -1524,7 +1524,7 @@ async function processPostHocAssertions() {
 
 	while (true) {
 		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
-		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,source_year,family_id,household_id,legal_status,head&limit=${limit}&offset=${offset}`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,source_year,family_id,household_id,legal_status,head&limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
 		if (!res.ok) {
 			throw new Error('Failed to fetch mentions for assertions');
 		}
@@ -1707,8 +1707,8 @@ async function processPostHocAssertions() {
 			const chunk = assertionBatches.slice(i, i + CONCURRENCY);
 			await Promise.all(chunk.map(async (batch) => {
 				try {
-					await saveAssertionsBatch(batch);
-					assertionsWritten += batch.length;
+					const written = await saveAssertionsBatch(batch);
+					assertionsWritten += written;
 				} catch (err) {
 					log(`Failed to write Census assertion batch: ${err.message}`, true);
 				}
@@ -1803,13 +1803,17 @@ async function removeDuplicateAssertions() {
 }
 
 async function removeDuplicateMentions(prefix) {
+	if (selectedSource && selectedSource.format && selectedSource.format.includes('Census')) {
+		log('Skipping mention deduplication for Census sources (all rows are distinct individuals).');
+		return;
+	}
 	log('Checking for duplicate mentions to remove...');
 	let allMentions = [];
 	let offset = 0;
 	const limit = 10000;
 	while (true) {
 		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
-		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,source,source_year&limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,race,birth_year,birth_place,occupation,legal_status,household_id,family_id,district,head,source,source_year&limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
 		if (!res.ok) throw new Error('Failed to fetch mentions for cleanup');
 		const data = await res.json();
 		if (data.length === 0) break;
@@ -1820,7 +1824,7 @@ async function removeDuplicateMentions(prefix) {
 
 	const groups = {};
 	allMentions.forEach(m => {
-		const key = `${m.full_name || ''}|${m.source || ''}|${m.source_year || ''}`;
+		const key = `${m.full_name || ''}|${m.gender || ''}|${m.race || ''}|${m.birth_year || ''}|${m.birth_place || ''}|${m.occupation || ''}|${m.household_id || ''}|${m.family_id || ''}|${m.source || ''}|${m.source_year || ''}`;
 		if (!groups[key]) groups[key] = [];
 		groups[key].push(m.mention_id);
 	});
@@ -1858,17 +1862,32 @@ async function removeDuplicateMentions(prefix) {
 }
 
 async function saveAssertionsBatch(assertions) {
-	if (assertions.length === 0) return;
+	if (!assertions || assertions.length === 0) return 0;
 	const cleanAssertions = normalizeObjectKeys(assertions);
 	const res = await fetch(`${POSTGREST_URL}/assertions`, {
 		method: 'POST',
 		headers: API_HEADERS,
 		body: JSON.stringify(cleanAssertions)
 	});
-	if (!res.ok) {
-		const err = await res.text();
-		throw new Error(err);
+	if (res.ok) {
+		return cleanAssertions.length;
 	}
+
+	// If batch failed and size > 1, recursively split into two smaller batches
+	if (cleanAssertions.length > 1) {
+		const mid = Math.floor(cleanAssertions.length / 2);
+		const left = cleanAssertions.slice(0, mid);
+		const right = cleanAssertions.slice(mid);
+		const leftCount = await saveAssertionsBatch(left);
+		const rightCount = await saveAssertionsBatch(right);
+		return leftCount + rightCount;
+	}
+
+	// If a single assertion failed, log the specific error and skip it without crashing the batch
+	const err = await res.text();
+	const item = cleanAssertions[0];
+	log(`Warning: Failed to save assertion (${item.subject_id} ${item.predicate} ${item.object_id}): ${err}`, true);
+	return 0;
 }
 
 
