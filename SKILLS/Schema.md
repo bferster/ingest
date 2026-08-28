@@ -54,8 +54,8 @@ The following SQL commands define the schema for the various tables needed:
 		head BOOLEAN,
 		household_id VARCHAR(50),	
 		family_id VARCHAR(50),
-		district VARCHAR(50),
-		enumeration VARCHAR(12)
+		district VARCHAR(255),
+		enumeration VARCHAR(255)
 		);
 
 	ALTER TABLE locations 

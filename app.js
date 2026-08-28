@@ -454,6 +454,22 @@ function getRowValue(obj, key) {
 	return foundKey ? obj[foundKey] : null;
 }
 
+function parseValidYear(val) {
+	if (val === null || val === undefined) return null;
+	const s = String(val).trim();
+	if (!s) return null;
+	// Look for a realistic 4-digit year between 1500 and 2099
+	const match = s.match(/\b(1[5-9]\d{2}|20\d{2})\b/);
+	if (match) {
+		return parseInt(match[1]);
+	}
+	const num = parseInt(s);
+	if (!isNaN(num) && num >= 1500 && num <= 2099) {
+		return num;
+	}
+	return null;
+}
+
 async function prepareMention(row, rowIndex = -1) {
 	// 1. Extract name fields using robust getRowValue
 	let firstName = getRowValue(row, 'first_name') || getRowValue(row, 'given_name') || getRowValue(row, 'name') || '';
@@ -474,16 +490,12 @@ async function prepareMention(row, rowIndex = -1) {
 	let rawBirthYear = getRowValue(row, 'birth_year') || getRowValue(row, 'birthyear') || getRowValue(row, 'year_of_birth');
 	let rawAge = getRowValue(row, 'age');
 
-	let computedBirthYear = null;
-	if (rawBirthYear !== null && rawBirthYear !== undefined && String(rawBirthYear).trim() !== '') {
-		const parsedBy = parseInt(String(rawBirthYear).trim());
-		if (!isNaN(parsedBy)) computedBirthYear = parsedBy;
-	}
+	let computedBirthYear = parseValidYear(rawBirthYear);
 
 	if (computedBirthYear === null && rawAge !== null && rawAge !== undefined && String(rawAge).trim() !== '') {
 		const age = parseInt(String(rawAge).trim());
-		if (!isNaN(age)) {
-			const refYear = (selectedSource && selectedSource.year) ? parseInt(selectedSource.year) : 1866;
+		if (!isNaN(age) && age >= 0 && age <= 125) {
+			const refYear = (selectedSource && selectedSource.year) ? (parseValidYear(selectedSource.year) || 1866) : 1866;
 			computedBirthYear = refYear - age;
 		}
 	}
@@ -493,9 +505,13 @@ async function prepareMention(row, rowIndex = -1) {
 	const birthPlace = (rawBirthPlace !== null && rawBirthPlace !== undefined && String(rawBirthPlace).trim() !== '') ? String(rawBirthPlace).trim() : null;
 
 	const rawDeathYear = getRowValue(row, 'death_year');
-	const deathYear = (rawDeathYear !== null && rawDeathYear !== undefined && String(rawDeathYear).trim() !== '') ? parseInt(String(rawDeathYear).trim()) : null;
+	let deathYear = parseValidYear(rawDeathYear);
+	if (deathYear === null) {
+		const rawEventDate = getRowValue(row, 'event_date') || getRowValue(row, 'date');
+		deathYear = parseValidYear(rawEventDate);
+	}
 
-	const rawDistrict = getRowValue(row, 'district') || getRowValue(row, 'District');
+	const rawDistrict = getRowValue(row, 'district') || getRowValue(row, 'District') || getRowValue(row, 'event_place');
 	const district = (rawDistrict !== null && rawDistrict !== undefined && String(rawDistrict).trim() !== '') ? String(rawDistrict).trim() : null;
 
 	const nysiisLastName = simpleNysiis(lastName);
@@ -510,22 +526,18 @@ async function prepareMention(row, rowIndex = -1) {
 	const county = selectedSource.county || 'AUG';
 	const prefix = getMentionPrefix(format, county, selectedSource.year, row);
 	const isSlaveSchedule = format.includes('SlaveSchedule');
-	let line;
-	if (isSlaveSchedule) {
-		line = rowIndex >= 0 ? (rowIndex + 1) : (getRowValue(row, 'line') || '1');
-	} else {
-		line = getRowValue(row, 'line');
-		if (!line || String(line).trim() === '') {
-			line = rowIndex >= 0 ? (rowIndex + 1) : '';
-		}
+	let line = getRowValue(row, 'line');
+	if (!line || String(line).trim() === '') {
+		line = rowIndex >= 0 ? (rowIndex + 1) : '';
 	}
 	const mId = idGenerator.generate(prefix, line, isSlaveSchedule);
 
 	// 4. Construct Mention Object
+	const defaultSourceYear = (selectedSource && selectedSource.year) ? (parseValidYear(selectedSource.year) || 1850) : 1850;
 	const mention = {
 		mention_id: mId,
 		source: prefix,
-		source_year: parseInt(selectedSource.year),
+		source_year: defaultSourceYear,
 		confidence: currentConfidence,
 		full_name: fullName,
 		first_name: firstName,
@@ -533,7 +545,7 @@ async function prepareMention(row, rowIndex = -1) {
 		last_name: lastName,
 		birth_year: computedBirthYear,
 		birth_place: birthPlace,
-		death_year: isNaN(deathYear) ? null : deathYear,
+		death_year: deathYear,
 		race: mapRace(rawRace),
 		gender: mapGender(rawGender),
 		occupation: rawOccupation,
@@ -550,6 +562,11 @@ async function prepareMention(row, rowIndex = -1) {
 	};
 
 	await applyFormatSpecificRules(mention, row);
+
+	// Sanitize year fields to guarantee valid smallint values
+	mention.source_year = parseValidYear(mention.source_year) || defaultSourceYear;
+	mention.birth_year = parseValidYear(mention.birth_year);
+	mention.death_year = parseValidYear(mention.death_year);
 
 	if (mention.last_name && String(mention.last_name).trim() !== '') {
 		const cleanLast = String(mention.last_name).trim();
@@ -643,8 +660,9 @@ async function applyFormatSpecificRules(mention, row) {
 		mention.legal_status = 'F';
 		mention.race = 'B';
 		mention.norm_race = 'B';
-		if (row.record_year) {
-			const yr = parseInt(row.record_year);
+		const recordYear = getRowValue(row, 'record_year');
+		if (recordYear) {
+			const yr = parseInt(recordYear);
 			if (!isNaN(yr)) mention.source_year = yr;
 		}
 	}
@@ -652,16 +670,10 @@ async function applyFormatSpecificRules(mention, row) {
 	// DeathRecords / VitalRecord
 	if (format.includes('Death') || format.includes('VitalRecord')) {
 		mention.confidence = 0.9;
-		const rYear = getRowValue(row, 'record_year') || getRowValue(row, 'death_year') || getRowValue(row, 'birth_year');
-		if (rYear) {
-			const yr = parseInt(rYear);
-			if (!isNaN(yr)) mention.source_year = yr;
-		} else if (row.birth_year) {
-			const yr = parseInt(row.birth_year);
-			if (!isNaN(yr)) mention.source_year = yr;
-		} else if (row.death_year) {
-			const yr = parseInt(row.death_year);
-			if (!isNaN(yr)) mention.source_year = yr;
+		const rYear = getRowValue(row, 'record_year') || getRowValue(row, 'death_year') || getRowValue(row, 'event_date') || getRowValue(row, 'date') || getRowValue(row, 'birth_year');
+		const validYear = parseValidYear(rYear);
+		if (validYear) {
+			mention.source_year = validYear;
 		}
 		const freeOrEnslaved = (getRowValue(row, 'free_or_enslaved') || '').trim().toLowerCase();
 		if (freeOrEnslaved === 'enslaved' || freeOrEnslaved === 'slave') {
@@ -705,9 +717,8 @@ async function applyFormatSpecificRules(mention, row) {
 		} else {
 			mention.legal_status = 'E';
 			mention.head = null;
-			const r = row.race || row.Race;
-			mention.race = mapRace(r) || 'B';
-			mention.norm_race = simpleRaceNorm(r) || 'B';
+			mention.race = 'B';
+			mention.norm_race = 'B';
 		}
 	}
 
@@ -719,12 +730,12 @@ async function applyFormatSpecificRules(mention, row) {
 		mention.norm_race = 'B';
 		const nameVal = getRowValue(row, 'name') || getRowValue(row, 'full_name');
 		if (nameVal) {
-			const { first, middle, last } = parseGeneralName(nameVal);
-			mention.full_name = nameVal;
-			mention.first_name = first || nameVal;
-			mention.middle_name = middle;
-			mention.last_name = last;
-			mention.norm_first_name = normalizeFirstName(mention.first_name);
+			const cleanName = String(nameVal).replace(/[.,]/g, '').trim();
+			mention.full_name = cleanName;
+			mention.first_name = cleanName;
+			mention.middle_name = '';
+			mention.last_name = '';
+			mention.norm_first_name = normalizeFirstName(cleanName);
 		}
 	}
 
@@ -798,12 +809,6 @@ async function applyFormatSpecificRules(mention, row) {
 	}
 }
 
-async function createAssertions(mention, row) {
-	// Assertions are created here based on the format .md files
-	// Since we don't have the specific format files parsed, we stub this out.
-	// E.g., check for explicit relationships and POST to /assertions
-}
-
 async function processPostHocMentions() {
 	log('Starting Post-Hoc Mentions processing...');
 
@@ -874,103 +879,7 @@ async function processPostHocMentions() {
 		return;
 	}
 
-	if (!selectedSource.format.includes('Census')) {
-		log('Skipping Census post-hoc processing for non-census format.');
-		return;
-	}
-
-	// Sort mentions by line number to ensure carry-forward logic works correctly
-	mentions.sort((a, b) => {
-		const rowA = mentionRowMap.get(a.mention_id) || a.original_data;
-		const rowB = mentionRowMap.get(b.mention_id) || b.original_data;
-		const lineA = parseInt(getRowValue(rowA, 'line') || 0);
-		const lineB = parseInt(getRowValue(rowB, 'line') || 0);
-		return lineA - lineB;
-	});
-
-	// Group by source_year and dwelling/family (Census logic)
-	log(`Found ${mentions.length} mentions to check for household/family IDs.`);
-
-	// Group mention IDs by their combined target IDs to minimize requests
-	const updateGroups = {}; // "hId|fId" -> [mention_id]
-
-	let lastDwelling = null;
-	let lastFamily = null;
-
-	mentions.forEach(m => {
-		const row = mentionRowMap.get(m.mention_id) || m.original_data;
-		if (!m.source_year || !row) return;
-
-		// Use robust field lookup for dwelling and family
-		let rawDwelling = getRowValue(row, 'dwelling');
-		let rawFamily = getRowValue(row, 'family');
-
-		// Carry-forward logic: if blank, use the last seen value
-		if (rawDwelling !== null && rawDwelling !== undefined && String(rawDwelling).trim() !== '') {
-			lastDwelling = String(rawDwelling).trim();
-			rawDwelling = lastDwelling;
-		} else {
-			rawDwelling = lastDwelling;
-		}
-
-		if (rawFamily !== null && rawFamily !== undefined && String(rawFamily).trim() !== '') {
-			lastFamily = String(rawFamily).trim();
-			rawFamily = lastFamily;
-		} else {
-			rawFamily = lastFamily;
-		}
-
-		const hId = rawDwelling ? `HC${m.source_year}-${rawDwelling}` : null;
-		const fId = rawFamily ? `FC${m.source_year}-${rawFamily}` : null;
-
-		if (!hId && !fId) return;
-
-		const key = `${hId || ''}|${fId || ''}`;
-		if (!updateGroups[key]) updateGroups[key] = [];
-		updateGroups[key].push(m.mention_id);
-	});
-
-	const keys = Object.keys(updateGroups);
-	log(`Updating ${keys.length} combined household/family groups...`);
-
-	let processed = 0;
-	const total = keys.length;
-	const startTime = Date.now();
-
-	// Process updates with a concurrency limit
-	const CONCURRENCY = 10;
-	for (let i = 0; i < keys.length; i += CONCURRENCY) {
-		const chunk = keys.slice(i, i + CONCURRENCY);
-		await Promise.all(chunk.map(async (key) => {
-			const [hId, fId] = key.split('|');
-			const ids = updateGroups[key];
-			const updateData = {};
-			if (hId) updateData.household_id = hId;
-			if (fId) updateData.family_id = fId;
-
-			try {
-				// Chunk IDs if there are too many for a single URL
-				for (let j = 0; j < ids.length; j += 100) {
-					const idChunk = ids.slice(j, j + 100);
-					// Quote UUIDs to ensure PostgREST parses them correctly
-					const idList = idChunk.map(id => `"${id}"`).join(',');
-					const patchRes = await fetch(`${POSTGREST_URL}/mentions?mention_id=in.(${idList})`, {
-						method: 'PATCH',
-						headers: API_HEADERS,
-						body: JSON.stringify(updateData)
-					});
-					if (!patchRes.ok) {
-						const errText = await patchRes.text();
-						log(`Failed to update group ${key} (rows ${j}-${j + idChunk.length}): ${errText}`, true);
-					}
-				}
-			} catch (err) {
-				log(`Failed to update group ${key}: ${err.message}`, true);
-			}
-			processed++;
-		}));
-		updateProgress(processed, total, startTime, 'household/family groups updated');
-	}
+	log(`No post-hoc mention processing defined for format "${format}". Skipping.`);
 }
 
 
@@ -1047,7 +956,6 @@ async function processSlaveBirthPostHoc(mentions) {
 
 		if (motherName && motherName.trim() !== '') {
 			const cleanMother = motherName.replace(/[.,]/g, '').trim();
-			const { first, middle, last } = parseGeneralName(cleanMother, true);
 			const motherId = `${m.mention_id}.1`;
 			mentionRowMap.set(motherId, row);
 			additionalMentions.push({
@@ -1056,18 +964,18 @@ async function processSlaveBirthPostHoc(mentions) {
 				source_year: m.source_year,
 				confidence: 0.95,
 				full_name: cleanMother,
-				first_name: first,
-				middle_name: middle,
-				last_name: last,
+				first_name: cleanMother,
+				middle_name: '',
+				last_name: '',
 				birth_place: null,
 				gender: 'F',
 				race: 'B',
 				norm_race: 'B',
 				legal_status: 'E',
 				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || m.district || null,
-				norm_first_name: normalizeFirstName(first),
-				nysiis_last_name: last ? simpleNysiis(last) : null,
-				metaphone_last_name: last ? doubleMetaphone(last) : null
+				norm_first_name: normalizeFirstName(cleanMother),
+				nysiis_last_name: null,
+				metaphone_last_name: null
 			});
 		}
 
@@ -1294,7 +1202,7 @@ async function processDeathRecordsPostHoc(mentions) {
 				gender: null,
 				birth_year: null,
 				death_year: null,
-				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || personMention.district || null,
+				district: null,
 				norm_first_name: normalizeFirstName(first),
 				nysiis_last_name: last ? simpleNysiis(last) : null,
 				metaphone_last_name: last ? doubleMetaphone(last) : null
@@ -1322,7 +1230,7 @@ async function processDeathRecordsPostHoc(mentions) {
 				gender: null,
 				birth_year: null,
 				death_year: null,
-				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || personMention.district || null,
+				district: null,
 				norm_first_name: normalizeFirstName(first),
 				nysiis_last_name: last ? simpleNysiis(last) : null,
 				metaphone_last_name: last ? doubleMetaphone(last) : null
@@ -1350,7 +1258,7 @@ async function processDeathRecordsPostHoc(mentions) {
 				gender: null,
 				birth_year: null,
 				death_year: null,
-				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || personMention.district || null,
+				district: null,
 				norm_first_name: normalizeFirstName(first),
 				nysiis_last_name: last ? simpleNysiis(last) : null,
 				metaphone_last_name: last ? doubleMetaphone(last) : null
@@ -1378,7 +1286,7 @@ async function processDeathRecordsPostHoc(mentions) {
 				gender: null,
 				birth_year: null,
 				death_year: null,
-				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || personMention.district || null,
+				district: null,
 				norm_first_name: normalizeFirstName(first),
 				nysiis_last_name: last ? simpleNysiis(last) : null,
 				metaphone_last_name: last ? doubleMetaphone(last) : null
@@ -1604,7 +1512,6 @@ async function processPostHocAssertions() {
 
 			for (let i = 0; i < members.length; i++) {
 				const self = members[i];
-				const next = members[i + 1];
 
 				// Skip head for relation identification as per instruction 74
 				if (self.mention_id === head.mention_id) continue;
@@ -1652,20 +1559,6 @@ async function processPostHocAssertions() {
 							"niece-in-law": "isNiblingInLawOf"
 						};
 						predicate = relationMap[relation.toLowerCase()] || null;
-					}
-				} else {
-					// 1870 Census Logic (Inferred-based)
-					who = "1870Census";
-					confidence = 0.5;
-
-					// Rule 75: isSpouseOf
-					if (next && self.gender === 'M' && next.gender === 'F') {
-						const selfYear = self.birth_year || 0;
-						const nextYear = next.birth_year || 0;
-						const yearDiff = selfYear - nextYear;
-						if (yearDiff >= -5 && yearDiff <= 15) {
-							predicate = 'isSpouseOf';
-						}
 					}
 				}
 
@@ -1993,8 +1886,8 @@ async function processDeathRecordsAssertions(mentions) {
 		const row = mentionRowMap.get(m.mention_id) || m.original_data;
 		if (!row) return;
 
-		const startYear = m.source_year || (row ? (getRowValue(row, 'record_year') || getRowValue(row, 'death_year') || getRowValue(row, 'birth_year')) : null) || parseInt(selectedSource.year) || null;
-		const parsedYear = startYear ? parseInt(startYear) : null;
+		const startYear = m.source_year || (row ? (getRowValue(row, 'record_year') || getRowValue(row, 'death_year') || getRowValue(row, 'event_date') || getRowValue(row, 'birth_year')) : null) || (selectedSource ? selectedSource.year : null);
+		const parsedYear = parseValidYear(startYear) || (selectedSource ? parseValidYear(selectedSource.year) : null) || null;
 
 		const parent1Str = String(getRowValue(row, 'parent1') || '').trim();
 		const parent2Str = String(getRowValue(row, 'parent2') || '').trim();
@@ -2161,7 +2054,8 @@ async function processDeathRecordsAssertions(mentions) {
 async function processChurchAssertions(mentions) {
 	log('Creating wasEnslavedBy assertions for Church records...');
 
-	const dbSource = await getDatabaseSource(selectedSource);
+	const county = getCountyPrefix(selectedSource.county || 'AUG');
+	const dbSource = `${county}-CH`;
 	const enslaved = mentions.filter(m => {
 		const row = mentionRowMap.get(m.mention_id) || m.original_data;
 		return m.legal_status === 'E' && getRowValue(row, 'enslaver_full_name');
@@ -2176,12 +2070,21 @@ async function processChurchAssertions(mentions) {
 	log(`Found ${existingAssertionKeys.size} existing assertions for ${dbSource}.`);
 
 	const assertionsToCreate = [];
+	// Mirrors the dedup in processChurchEnslaverMentions: repeated enslaver_full_name
+	// values share a single enslaver mention (id'd off the first enslaved person seen).
+	const seenEnslavers = new Map();
 
 	for (const m of enslaved) {
 		const row = mentionRowMap.get(m.mention_id) || m.original_data;
 		const enslaverName = getRowValue(row, 'enslaver_full_name');
 		if (enslaverName && enslaverName.trim() !== '') {
-			const objValue = `${m.mention_id}.1`;
+			let objValue;
+			if (seenEnslavers.has(enslaverName)) {
+				objValue = seenEnslavers.get(enslaverName);
+			} else {
+				objValue = `${m.mention_id}.1`;
+				seenEnslavers.set(enslaverName, objValue);
+			}
 			const aKey = `${m.mention_id}|wasEnslavedBy|${objValue}`;
 			if (!existingAssertionKeys.has(aKey)) {
 				assertionsToCreate.push({
@@ -2623,163 +2526,6 @@ function simpleNysiis(str) {
 
 	return collapsed;
 }
-
-
-const NICKNAMES = {
-	"WM": "WILLIAM", "BILL": "WILLIAM", "BILLY": "WILLIAM", "WILL": "WILLIAM", "WILLY": "WILLIAM", "WILLIE": "WILLIAM",
-	"ROBT": "ROBERT", "ROB": "ROBERT", "BOB": "ROBERT", "BOBBY": "ROBERT", "ROBBIE": "ROBERT",
-	"JAS": "JAMES", "JIM": "JAMES", "JIMMY": "JAMES", "JAMIE": "JAMES",
-	"CHAS": "CHARLES", "CHARLIE": "CHARLES", "CHUCK": "CHARLES", "CARL": "CHARLES",
-	"THOS": "THOMAS", "TOM": "THOMAS", "TOMMY": "THOMAS",
-	"JNO": "JOHN", "JON": "JOHN", "JACK": "JOHN", "JACKIE": "JOHN", "JONNY": "JOHN", "JOHNNY": "JOHN",
-	"DAN": "DANIEL", "DANNY": "DANIEL",
-	"ED": "EDWARD", "EDDIE": "EDWARD", "NED": "EDWARD", "TED": "EDWARD", "TEDDY": "EDWARD",
-	"GEO": "GEORGE",
-	"JOS": "JOSEPH", "JOE": "JOSEPH", "JOEY": "JOSEPH",
-	"SAM": "SAMUEL", "SAMMY": "SAMUEL",
-	"ALEX": "ALEXANDER", "ALECK": "ALEXANDER", "ALEC": "ALEXANDER", "SANDY": "ALEXANDER",
-	"PAT": "PATRICK", "PADDY": "PATRICK",
-	"MATT": "MATTHEW", "MAT": "MATTHEW",
-	"MIKE": "MICHAEL", "MICK": "MICHAEL", "MICKEY": "MICHAEL", "MICH": "MICHAEL",
-	"DAVE": "DAVID", "DAVEY": "DAVID", "DAVY": "DAVID",
-	"CHRIS": "CHRISTOPHER", "KIT": "CHRISTOPHER",
-	"RICH": "RICHARD", "RICK": "RICHARD", "DICK": "RICHARD", "RICHD": "RICHARD", "DICKY": "RICHARD",
-	"HARRY": "HENRY", "HAL": "HENRY", "HEN": "HENRY",
-	"BEN": "BENJAMIN", "BENNY": "BENJAMIN", "BENJ": "BENJAMIN",
-	"FRED": "FREDERICK", "FREDDY": "FREDERICK", "FREDK": "FREDERICK",
-	"FRANK": "FRANCIS", "FRAN": "FRANCIS", "FRAS": "FRANCIS",
-	"ANDY": "ANDREW",
-	"TONY": "ANTHONY", "ANT": "ANTHONY",
-	"ART": "ARTHUR", "ARTIE": "ARTHUR",
-	"AL": "ALBERT", "ALB": "ALBERT",
-	"ALF": "ALFRED", "ALFIE": "ALFRED",
-	"WALT": "WALTER", "WALLY": "WALTER",
-	"PETE": "PETER",
-	"STEVE": "STEPHEN", "STEPH": "STEPHEN",
-	"NICK": "NICHOLAS", "NICKY": "NICHOLAS",
-	"NAT": "NATHANIEL", "NATE": "NATHANIEL", "NATHL": "NATHANIEL",
-	"ABE": "ABRAHAM",
-	"IKE": "ISAAC",
-	"LI": "ELIJAH", "LIJE": "ELIJAH",
-	"MANNY": "EMANUEL", "MANUEL": "EMANUEL",
-	"HARV": "HARVEY",
-	"LEW": "LEWIS",
-	"MOSE": "MOSES",
-	"SOL": "SOLOMON",
-	"TOBY": "TOBIAS",
-	"JERRY": "JEREMIAH", "JER": "JEREMIAH",
-	"ZEKE": "EZEKIEL",
-	"NEIL": "CORNELIUS", "CORN": "CORNELIUS",
-	"BART": "BARTHOLOMEW",
-	"ARCH": "ARCHIBALD", "ARCHIE": "ARCHIBALD",
-	"GUS": "AUGUSTUS",
-	"AMB": "AMBROSE",
-	"ZACH": "ZACHARIAH", "ZACK": "ZACHARIAH",
-	"LIZ": "ELIZABETH", "LIZZIE": "ELIZABETH", "LIZZY": "ELIZABETH", "BETH": "ELIZABETH", "BETTY": "ELIZABETH", "BETTE": "ELIZABETH", "BESS": "ELIZABETH", "BESSIE": "ELIZABETH", "ELIZA": "ELIZABETH", "ELIZ": "ELIZABETH", "LIBBY": "ELIZABETH",
-	"MOLLY": "MARY", "POLLY": "MARY", "MAE": "MARY", "MAMIE": "MARY",
-	"MAG": "MARGARET", "MAGGIE": "MARGARET", "MEG": "MARGARET", "PEGGY": "MARGARET", "MARG": "MARGARET", "MARGT": "MARGARET", "RITA": "MARGARET",
-	"KATE": "CATHERINE", "KATIE": "CATHERINE", "KITTY": "CATHERINE", "KATH": "CATHERINE",
-	"SARA": "SARAH", "SALLY": "SARAH", "SAL": "SARAH",
-	"SUE": "SUSAN", "SUSIE": "SUSAN", "SUSY": "SUSAN", "SUSA": "SUSANNAH",
-	"ANNIE": "ANN", "ANNA": "ANN", "NAN": "ANN", "NANNY": "ANN", "HANNA": "HANNAH",
-	"MART": "MARTHA", "MATTIE": "MARTHA",
-	"BECCA": "REBECCA", "BECKY": "REBECCA",
-	"GEORGEANA": "GEORGEANNA", "GEORGIANA": "GEORGEANNA", "GEORGIANNA": "GEORGEANNA", "GEORGEANNE": "GEORGEANNA",
-	"CARRIE": "CAROLINE", "CAROL": "CAROLINE",
-	"NELL": "ELEANOR", "NELLIE": "ELEANOR", "NORA": "ELEANOR",
-	"FANNY": "FRANCES",
-	"HATTIE": "HARRIET",
-	"LOU": "LOUISA", "LULA": "LOUISA",
-	"TILLY": "MATILDA", "TILLIE": "MATILDA",
-	"GINNY": "VIRGINIA",
-	"VINA": "LAVINIA", "VINEY": "LAVINIA",
-	"PRISSY": "PRISCILLA", "CILLA": "PRISCILLA",
-	"DELIA": "DELILAH", "LILA": "DELILAH",
-	"LUCY": "LUCINDA",
-	"PHILLIS": "PHYLLIS",
-	"MINNIE": "MINERVA"
-};
-
-window.Normalize = {
-	getNickname: function (name) {
-		if (!name) return "";
-		let norm = name.toUpperCase().replace(/[^A-Z]/g, '');
-		return NICKNAMES[norm] || norm;
-	},
-
-	getNYSIIS: function (name) {
-		if (!name) return "";
-		let n = name.toUpperCase().replace(/[^A-Z]/g, '');
-		if (!n) return "";
-
-		if (n.startsWith("MAC")) n = "MC" + n.substring(3);
-		else if (n.startsWith("KN")) n = "N" + n.substring(2);
-		else if (n.startsWith("SCH")) n = "S" + n.substring(3);
-
-		if (n.endsWith("EE") || n.endsWith("IE")) n = n.substring(0, n.length - 2) + "Y";
-		else if (n.endsWith("DT") || n.endsWith("RT") || n.endsWith("RD") || n.endsWith("NT") || n.endsWith("ND")) n = n.substring(0, n.length - 2) + "D";
-
-		n = n.replace(/[SA]$/, '');
-
-		const isVowel = c => "AEIOU".includes(c);
-		let res = "";
-
-		for (let i = 0; i < n.length; i++) {
-			let c = n[i];
-			let prev = i > 0 ? n[i - 1] : '';
-			let next = i < n.length - 1 ? n[i + 1] : '';
-
-			if (isVowel(c)) c = "A";
-			else if (c === "Q") c = "G";
-			else if (c === "Z") c = "S";
-			else if (c === "M") c = "N";
-			else if (c === "P" && next === "H") { c = "F"; i++; }
-			else if (c === "K") c = "C";
-			else if (c === "H" && (!isVowel(prev) || !isVowel(next))) continue;
-			else if (c === "W" && isVowel(prev)) continue;
-
-			if (res.length > 0 && res[res.length - 1] === c) continue;
-			res += c;
-		}
-		return res;
-	},
-
-	getSoundex: function (name) {
-		if (!name) return "";
-		let s = name.toUpperCase().replace(/[^A-Z]/g, '');
-		if (!s) return "";
-
-		const map = {
-			B: 1, F: 1, P: 1, V: 1,
-			C: 2, G: 2, J: 2, K: 2, Q: 2, S: 2, X: 2, Z: 2,
-			D: 3, T: 3,
-			L: 4,
-			M: 5, N: 5,
-			R: 6
-		};
-
-		let res = s[0];
-		let prevCode = map[s[0]] || 0;
-
-		for (let i = 1; i < s.length; i++) {
-			if (res.length === 4) break;
-			let c = s[i];
-			if (c === 'H' || c === 'W') continue;
-			if ("AEIOUY".includes(c)) {
-				prevCode = 0;
-				continue;
-			}
-			let code = map[c];
-			if (code && code !== prevCode) {
-				res += code;
-				prevCode = code;
-			} else if (code) {
-				prevCode = code;
-			}
-		}
-		return (res + "000").substring(0, 4);
-	}
-};
 
 
 /*///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3635,6 +3381,7 @@ const nicknames = {
 	"HANNA": "HANNAH",
 	"MART": "MARTHA", "MATTIE": "MARTHA",
 	"BECCA": "REBECCA", "BECKY": "REBECCA",
+	"GEORGEANA": "GEORGEANNA", "GEORGIANA": "GEORGEANNA", "GEORGIANNA": "GEORGEANNA", "GEORGEANNE": "GEORGEANNA",
 	"CARRIE": "CAROLINE", "CAROL": "CAROLINE",
 	"NELL": "ELEANOR", "NELLIE": "ELEANOR", "NORA": "ELEANOR",
 	"FANNY": "FRANCES",
