@@ -71,7 +71,7 @@ description: Format instructions for SlaveBirthsFormat
 		- Set full_name from owner_full_name.
 		- Set first_name, middle_name, and last_name from owner_full_name.
 		- Set race to "W" and norm_race to "W".
-		- Set legal_status to NULL.
+		- Set legal_status to "H"
 		- Apply normalization as described in @Normalize.md.
 		- Add mention to mentions table.
 

@@ -564,7 +564,7 @@ async function prepareMention(row, rowIndex = -1) {
 		norm_race: normRace ? normRace.substring(0, 1) : null,
 		norm_occupation: normOccupation,
 		head: String(getRowValue(row, 'head') || '').toUpperCase() === 'Y' || String(getRowValue(row, 'head') || '').toLowerCase() === 'TRUE',
-		legal_status: '', // Default
+		legal_status: null, // Default
 		household_id: rowIndex >= 0 ? (householdMap.get(rowIndex) || null) : null,
 		family_id: rowIndex >= 0 ? (familyMap.get(rowIndex) || null) : null
 	};
@@ -716,7 +716,7 @@ async function applyFormatSpecificRules(mention, row) {
 		const statusVal = String(getRowValue(row, 'status') || getRowValue(row, 'owner') || '').trim();
 		const isOwner = statusVal.toUpperCase() === 'Y' || statusVal.toLowerCase() === 'owner' || statusVal.toLowerCase() === 'enslaver';
 		if (isOwner) {
-			mention.legal_status = null;
+			mention.legal_status = 'H';
 			mention.head = true;
 			mention.birth_year = null;
 			mention.birth_place = null;
@@ -933,7 +933,7 @@ async function processChurchEnslaverMentions(mentions) {
 					first_name: eFirstName || first,
 					middle_name: eMiddleName || middle,
 					last_name: lastVal,
-					legal_status: '',
+					legal_status: 'H',
 					race: 'W',
 					norm_race: 'W',
 					birth_place: null,
@@ -1008,7 +1008,7 @@ async function processSlaveBirthPostHoc(mentions) {
 				birth_place: null,
 				race: 'W',
 				norm_race: 'W',
-				legal_status: null,
+				legal_status: 'H',
 				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || m.district || null,
 				norm_first_name: normalizeFirstName(first),
 				nysiis_last_name: last ? simpleNysiis(last) : null,
@@ -1294,6 +1294,7 @@ async function processDeathRecordsPostHoc(mentions) {
 				last_name: last,
 				race: 'W',
 				norm_race: 'W',
+				legal_status: 'H',
 				birth_place: null,
 				gender: null,
 				birth_year: null,
@@ -3672,6 +3673,13 @@ async function ingestSingleSource(source, csvData, useLimit) {
 	log(`Finished row ingestion for ${source.display_name}.`);
 
 	if (!stopIngestion) {
+		if (source.format && source.format.includes('Census') && typeof flushCrosswalkConflicts === 'function') {
+			try {
+				await flushCrosswalkConflicts(selectedSource.county || 'AUG');
+			} catch (err) {
+				log(`Failed to flush crosswalk conflicts: ${err.message}`, true);
+			}
+		}
 		try {
 			await processPostHocMentions();
 			await processPostHocAssertions();

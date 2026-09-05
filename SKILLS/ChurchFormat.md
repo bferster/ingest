@@ -191,6 +191,7 @@ description: Format instructions for ChurchFormat
 		- Set the middle_name from the enslaver_middle_name.
 		- Set the last_name from the enslaver_last_name.
 		- Set race to "W".
+		- Set legal_status to "H"
 		- Apply the normalization as described in @Normalize.md.
 		- age, race, gender, and birth_year fields are ignored.
 		- Add mention to mentions table.

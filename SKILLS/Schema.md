@@ -45,7 +45,7 @@ The following SQL commands define the schema for the various tables needed:
 		gender VARCHAR(1) CHECK (gender IN ('M','F','')),
 		birth_place VARCHAR(255),
 		occupation VARCHAR(100),
-		legal_status VARCHAR(100),
+		legal_status VARCHAR(1) CHECK (legal_status IN ('E','F','H')),
 
 		norm_first_name VARCHAR(100),
 		nysiis_last_name VARCHAR(100), 
@@ -98,6 +98,25 @@ The following SQL commands define the schema for the various tables needed:
 		hypothesis_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		confidence REAL, 
 		created TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);
+
+	CREATE TABLE conflicts (
+		conflict_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		mention_id VARCHAR(100) NOT NULL,
+		candidate_subject_ids JSONB,
+		who_by_candidate JSONB,
+		current_year SMALLINT,
+		logged_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+		status VARCHAR(50) DEFAULT 'open' CHECK (status IN ('open', 'resolved-supersede', 'resolved-distinct'))
+		);
+
+	CREATE TABLE supersede (
+		supersede_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		retired_verid VARCHAR(50) NOT NULL,
+		surviving_verid VARCHAR(50) NOT NULL,
+		reason TEXT,
+		who VARCHAR(100),
+		decided_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
 
 

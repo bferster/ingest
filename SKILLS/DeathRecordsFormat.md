@@ -112,6 +112,7 @@ description: Format instructions for DeathRecordsFormat
 			- normalize owner's name and add those fields
 			- ignore all other fields
 			- set race to W
+			- set legal_status to "H"
 			- create owner mention
 				- set new owner mention_id with new mention_id with format: for example: ALB-DE-1.4, where  "ALB" is the county, "DE" is the prefix and "1.4" is the index for owner.
 			- Add mention to mentions table.

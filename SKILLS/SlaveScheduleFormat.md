@@ -73,7 +73,7 @@ description: Format instructions for SlaveScheduleFormat
 	- head is set to true.
 	- race is set to "W".
 	- norm_race is set to "W"
-	- Set the legal_status field is set to NULL.
+	- Set legal_status to "H"
 	- The first_name, middle_name, and last_name fields are set, if there.
 	- Create a household_id: "HS"+source_year+#, where # is the sequential number of the household mention, starting at 1. (i.e HS1850-4546)
 	- Add mention to mentions table.
