@@ -27,7 +27,8 @@ The following SQL commands define the schema for the various tables needed:
 		);
 
 	CREATE TABLE mentions (
-		mention_id UUID PRIMARY KEY DEFAULT null
+		mention_id UUID PRIMARY KEY DEFAULT null,
+		verid VARCHAR(50),
 		source VARCHAR(100),
 		source_year SMALLINT, 
 		county VARCHAR(50),

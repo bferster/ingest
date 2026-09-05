@@ -232,6 +232,13 @@ function populateSourceDropdown() {
 						return;
 					}
 					if (typeof ContenderNarratives === 'function') await ContenderNarratives();
+				} else if (val === 'ingest_crosswalk') {
+					const selectedCounty = countySelect ? countySelect.value : 'AUG';
+					if (!confirm(`Are you sure you want to ingest crosswalk assertions for county ${selectedCounty}?`)) {
+						actionSelect.value = '';
+						return;
+					}
+					if (typeof ingestCrosswalkAssertions === 'function') await ingestCrosswalkAssertions(selectedCounty);
 				} else if (val === 'ingest_all') {
 					isIngestAllMode = true;
 					const selectedCounty = countySelect ? countySelect.value : null;
@@ -536,6 +543,7 @@ async function prepareMention(row, rowIndex = -1) {
 	const defaultSourceYear = (selectedSource && selectedSource.year) ? (parseValidYear(selectedSource.year) || 1850) : 1850;
 	const mention = {
 		mention_id: mId,
+		verid: null,
 		source: prefix,
 		source_year: defaultSourceYear,
 		confidence: currentConfidence,
@@ -560,6 +568,10 @@ async function prepareMention(row, rowIndex = -1) {
 		household_id: rowIndex >= 0 ? (householdMap.get(rowIndex) || null) : null,
 		family_id: rowIndex >= 0 ? (familyMap.get(rowIndex) || null) : null
 	};
+
+	if (format.includes('Census') && typeof Crosswalk === 'function') {
+		Crosswalk(county, defaultSourceYear, mention, row, rowIndex);
+	}
 
 	await applyFormatSpecificRules(mention, row);
 
@@ -3564,6 +3576,9 @@ async function ingestSingleSource(source, csvData, useLimit) {
 	mentionRowMap.clear();
 
 	if (selectedSource.format.includes('Census')) {
+		if (typeof initCrosswalk === 'function') {
+			await initCrosswalk(selectedSource.county || 'AUG', selectedSource.year);
+		}
 		let lastDwelling = null;
 		let lastFamily = null;
 		for (let i = 0; i < currentCsvData.length; i++) {
