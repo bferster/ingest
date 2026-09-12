@@ -44,7 +44,7 @@ The following SQL commands define the schema for the various tables needed:
 		race VARCHAR(1) CHECK (race IN ('B','M','W','C','I','Y','')),
 		gender VARCHAR(1) CHECK (gender IN ('M','F','')),
 		birth_place VARCHAR(255),
-		occupation VARCHAR(100),
+		occupation VARCHAR(100),`
 		legal_status VARCHAR(1) CHECK (legal_status IN ('E','F','H')),
 
 		norm_first_name VARCHAR(100),
@@ -57,6 +57,7 @@ The following SQL commands define the schema for the various tables needed:
 		family_id VARCHAR(50),
 		district VARCHAR(255),
 		enumeration VARCHAR(255)
+		data JSONB
 		);
 
 	ALTER TABLE locations 
