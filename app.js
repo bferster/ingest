@@ -518,7 +518,7 @@ async function prepareMention(row, rowIndex = -1) {
 		deathYear = parseValidYear(rawEventDate);
 	}
 
-	const rawDistrict = getRowValue(row, 'district') || getRowValue(row, 'District') || getRowValue(row, 'event_place');
+	const rawDistrict = getRowValue(row, 'district') || getRowValue(row, 'District') || getRowValue(row, 'event_place') || getRowValue(row, 'location');
 	const district = (rawDistrict !== null && rawDistrict !== undefined && String(rawDistrict).trim() !== '') ? String(rawDistrict).trim() : null;
 
 	const nysiisLastName = simpleNysiis(lastName);
@@ -656,7 +656,7 @@ async function applyFormatSpecificRules(mention, row) {
 				dataObj.prop_value = isNaN(num) ? String(propVal).trim() : num;
 			}
 			if (mention.district) dataObj.district = mention.district;
-		} else if (format.includes('1880')) {
+		} else if (format.includes('1880') || format.includes('1900')) {
 			const fBp = getRowValue(row, 'fathers_birthplace') || getRowValue(row, 'father_birth_place');
 			const mBp = getRowValue(row, 'mothers_birthplace') || getRowValue(row, 'mother_birth_place');
 			if (fBp) dataObj.fathers_birthplace = String(fBp).trim();
@@ -871,7 +871,7 @@ async function applyFormatSpecificRules(mention, row) {
 		mention.norm_race = 'B';
 		mention.source_year = 1866;
 
-		const cName = getRowValue(row, 'child_name') || getRowValue(row, 'name') || getRowValue(row, 'full_name');
+		const cName = getRowValue(row, 'first_name') || getRowValue(row, 'child_name') || getRowValue(row, 'name') || getRowValue(row, 'full_name');
 		if (cName) {
 			const cleanName = String(cName).replace(/[.,]/g, '').trim();
 			const { first, middle, last } = parseGeneralName(cleanName);
@@ -1095,6 +1095,41 @@ async function processChurchEnslaverMentions(mentions) {
 	}
 }
 
+function parseSlaveBirthOwnerName(rawOwner) {
+	if (!rawOwner) return { first: '', middle: '', last: '', title: null, cleanFull: '' };
+	let str = String(rawOwner).trim();
+
+	// If contains " / ", treat everything from the first slash onward as an alternate-spelling annotation
+	if (str.includes('/')) {
+		str = str.split('/')[0].trim();
+	}
+
+	// Strip a leading honorific into title (Rev, Mrs, Miss, Capt, etc.)
+	let title = null;
+	const honorificMatch = str.match(/^(Rev\.?|Mrs\.?|Miss\.?|Ms\.?|Mr\.?|Capt\.?|Col\.?|Maj\.?|Dr\.?|Gen\.?|Judge|Elder)\s+/i);
+	if (honorificMatch) {
+		title = honorificMatch[1].replace(/\.$/, '');
+		str = str.substring(honorificMatch[0].length).trim();
+	}
+
+	const cleanFull = str.replace(/[.,]/g, '').trim();
+	const tokens = cleanFull.split(/\s+/).filter(Boolean);
+
+	let first = '', middle = '', last = '';
+	if (tokens.length === 1) {
+		last = tokens[0];
+	} else if (tokens.length === 2) {
+		first = tokens[0];
+		last = tokens[1];
+	} else if (tokens.length > 2) {
+		first = tokens[0];
+		last = tokens[tokens.length - 1];
+		middle = tokens.slice(1, -1).join(' ');
+	}
+
+	return { first, middle, last, title, cleanFull: [first, middle, last].filter(Boolean).join(' ') };
+}
+
 async function processSlaveBirthPostHoc(mentions) {
 	log('Processing Mother and Enslaver Mentions for Slave Birth records...');
 
@@ -1128,32 +1163,35 @@ async function processSlaveBirthPostHoc(mentions) {
 				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || m.district || null,
 				norm_first_name: normalizeFirstName(cleanMother),
 				nysiis_last_name: null,
-				metaphone_last_name: null
+				metaphone_last_name: null,
+				data: null
 			});
 		}
 
 		if (ownerName && ownerName.trim() !== '') {
-			const cleanOwner = ownerName.replace(/[.,]/g, '').trim();
-			const { first, middle, last } = parseGeneralName(cleanOwner);
+			const { first, middle, last, title, cleanFull } = parseSlaveBirthOwnerName(ownerName);
 			const ownerId = `${m.mention_id}.2`;
 			mentionRowMap.set(ownerId, row);
+			const ownerData = title ? { title } : null;
 			additionalMentions.push({
 				mention_id: ownerId,
 				source: m.source,
 				source_year: m.source_year,
 				confidence: 0.95,
-				full_name: cleanOwner,
+				full_name: cleanFull || ownerName.trim(),
 				first_name: first,
 				middle_name: middle,
 				last_name: last,
 				birth_place: null,
+				gender: null,
 				race: 'W',
 				norm_race: 'W',
 				legal_status: 'H',
 				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || m.district || null,
 				norm_first_name: normalizeFirstName(first),
 				nysiis_last_name: last ? simpleNysiis(last) : null,
-				metaphone_last_name: last ? doubleMetaphone(last) : null
+				metaphone_last_name: last ? doubleMetaphone(last) : null,
+				data: ownerData
 			});
 		}
 	});
@@ -1176,12 +1214,14 @@ async function processCohabChildPostHoc(mentions) {
 		if (!row) return;
 
 		const fFirst = getRowValue(row, 'father_first_name');
+		const fMiddle = getRowValue(row, 'father_middle_name');
 		const fLast = getRowValue(row, 'father_last_name');
 
 		if ((fFirst && fFirst.trim()) || (fLast && fLast.trim())) {
 			const cleanFirst = fFirst ? fFirst.replace(/[.,]/g, '').trim() : '';
+			const cleanMiddle = fMiddle ? fMiddle.replace(/[.,]/g, '').trim() : '';
 			const cleanLast = fLast ? fLast.replace(/[.,]/g, '').trim() : '';
-			const fullName = [cleanFirst, cleanLast].filter(Boolean).join(' ');
+			const fullName = [cleanFirst, cleanMiddle, cleanLast].filter(Boolean).join(' ');
 
 			const fbp = getRowValue(row, 'father_birth_place') || getRowValue(row, 'father_birthplace');
 			const fatherBirthPlace = (fbp && String(fbp).trim() !== '') ? String(fbp).trim() : null;
@@ -1192,19 +1232,22 @@ async function processCohabChildPostHoc(mentions) {
 				mention_id: fatherId,
 				source: m.source,
 				source_year: 1866,
-				confidence: 0.95,
+				confidence: 0.90,
 				full_name: fullName,
 				first_name: cleanFirst,
+				middle_name: cleanMiddle,
 				last_name: cleanLast,
 				birth_place: fatherBirthPlace,
 				gender: 'M',
 				race: 'B',
 				norm_race: 'B',
 				legal_status: null,
+				family_id: m.family_id || null,
 				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || m.district || null,
 				norm_first_name: normalizeFirstName(cleanFirst),
 				nysiis_last_name: cleanLast ? simpleNysiis(cleanLast) : null,
-				metaphone_last_name: cleanLast ? doubleMetaphone(cleanLast) : null
+				metaphone_last_name: cleanLast ? doubleMetaphone(cleanLast) : null,
+				data: null
 			});
 		}
 	});
@@ -1252,6 +1295,20 @@ async function processCohabFamilyPostHoc(mentions) {
 			const wifeId = `${m.mention_id}.1`;
 			mentionRowMap.set(wifeId, row);
 
+			// data JSONB
+			const residence = getRowValue(row, 'residence');
+			const hFirst = getRowValue(row, 'husband_first_name');
+			const hMiddle = getRowValue(row, 'husband_middle_name');
+			const hLast = getRowValue(row, 'husband_last_name');
+			const hFull = [hFirst, hMiddle, hLast].filter(Boolean).join(' ').trim();
+			const originalRemarks = getRowValue(row, 'original_remarks') || getRowValue(row, 'remarks');
+
+			const dataObj = {};
+			if (residence) dataObj.residence = String(residence).trim();
+			if (hFull) dataObj.husband_full_name = hFull;
+			if (fullName) dataObj.wife_full_name = fullName;
+			if (originalRemarks) dataObj.original_remarks = String(originalRemarks).trim();
+
 			wifeMentions.push({
 				mention_id: wifeId,
 				source: m.source,
@@ -1267,10 +1324,12 @@ async function processCohabFamilyPostHoc(mentions) {
 				race: 'B',
 				norm_race: 'B',
 				legal_status: null,
+				family_id: m.family_id || null,
 				district: (getRowValue(row, 'district') ? String(getRowValue(row, 'district')).trim() : null) || m.district || null,
 				norm_first_name: normalizeFirstName(cleanFirst),
 				nysiis_last_name: cleanLast ? simpleNysiis(cleanLast) : null,
-				metaphone_last_name: cleanLast ? doubleMetaphone(cleanLast) : null
+				metaphone_last_name: cleanLast ? doubleMetaphone(cleanLast) : null,
+				data: Object.keys(dataObj).length > 0 ? dataObj : null
 			});
 		}
 	});
@@ -1685,12 +1744,17 @@ async function processPostHocAssertions() {
 					if (relation && relation.toLowerCase() !== "self") {
 						const relationMap = {
 							"wife": "isSpouseOf",
+							"husband": "isSpouseOf",
 							"son": "isChildOf",
 							"daughter": "isChildOf",
+							"stepson": "isStepChildOf",
+							"stepdaughter": "isStepChildOf",
 							"brother": "isSiblingOf",
 							"sister": "isSiblingOf",
 							"father": "isParentOf",
 							"mother": "isParentOf",
+							"stepfather": "isStepParentOf",
+							"stepmother": "isStepParentOf",
 							"grandfather": "isGrandParentOf",
 							"grandmother": "isGrandParentOf",
 							"uncle": "isPiblingOf",
@@ -2394,6 +2458,11 @@ async function processCohabChildAssertions(mentions) {
 			const fatherId = `${m.mention_id}.1`;
 			const fKey = `${fatherId}|isParentOf|${childId}`;
 
+			const ageVal = parseInt(getRowValue(row, 'age'));
+			const byVal = m.birth_year || parseInt(getRowValue(row, 'birth_year'));
+			const isImplausible = (!isNaN(ageVal) && ageVal > 45) || (!isNaN(byVal) && byVal < 1800);
+			const assertionConfidence = isImplausible ? 0.30 : 0.90;
+
 			if (!existingAssertionKeys.has(fKey)) {
 				assertionsToCreate.push({
 					subject_id: fatherId,
@@ -2402,7 +2471,7 @@ async function processCohabChildAssertions(mentions) {
 					who: whoTag,
 					start_year: 1866,
 					end_year: null,
-					confidence: 0.95
+					confidence: assertionConfidence
 				});
 				existingAssertionKeys.add(fKey);
 			}
@@ -2453,7 +2522,7 @@ async function processCohabFamilyAssertions(mentions) {
 					who: whoTag,
 					start_year: 1866,
 					end_year: null,
-					confidence: 0.95
+					confidence: 0.90
 				});
 				existingAssertionKeys.add(sKey);
 			}
@@ -3766,6 +3835,30 @@ async function ingestSingleSource(source, csvData, useLimit) {
 			if (currentHouseholdId) {
 				householdMap.set(i, currentHouseholdId);
 				row.enslaver_full_name = currentEnslaver;
+			}
+		}
+	} else if (selectedSource.format.includes('CohabFamily')) {
+		let lastFamily = null;
+		for (let i = 0; i < currentCsvData.length; i++) {
+			const row = currentCsvData[i];
+			let rawFamily = getRowValue(row, 'family');
+			if (rawFamily !== null && rawFamily !== undefined && String(rawFamily).trim() !== '') {
+				lastFamily = String(rawFamily).trim();
+			}
+			if (lastFamily) {
+				familyMap.set(i, `CF1866-${lastFamily}`);
+			}
+		}
+	} else if (selectedSource.format.includes('CohabChild') || selectedSource.format.includes('Cohab')) {
+		let lastFamily = null;
+		for (let i = 0; i < currentCsvData.length; i++) {
+			const row = currentCsvData[i];
+			let rawFamily = getRowValue(row, 'family');
+			if (rawFamily !== null && rawFamily !== undefined && String(rawFamily).trim() !== '') {
+				lastFamily = String(rawFamily).trim();
+			}
+			if (lastFamily) {
+				familyMap.set(i, `FC1866-${lastFamily}`);
 			}
 		}
 	}
