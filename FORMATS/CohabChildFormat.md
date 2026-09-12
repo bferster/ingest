@@ -37,10 +37,25 @@ description: Format instructions for CohabChildFormat
 
 	- The source_year field is set to 1866.
 	- Set legal_status to NULL.
-	- Set confidence to 0.95.
-	- Create mention_id for each row: ALB-CC-1, where "ALB" is the county, "CC" is the source type, "1" is the line number from the line field in the row. 
+	- Set confidence to 0.90.
+	- Create mention_id for each row: AUG-CC-1, where "AUG" is the county, "CC" is the source type, "1" is the line number from the line field in the row. 
 	- Set race to "B" and norm_race to "B".
 	- Add only field specified. Do not infer any other fields.	
+		- If a new family is detected, i.e. the family number is different from the previous row {
+		- create a new id using the year and the family number, such as FC1860-23.
+		- set the family_id field to the new id.
+		}
+
+**Plausibility checks**
+
+	- Perform these checks after birth_year is set and before adding the assertion.
+		- In-file check: if the child's age is greater than 45, or birth_year is
+			earlier than 1800, set review_flag to "implausible_child_age".
+	- Handling flagged rows
+		- Always add the child mention. Confidence stays 0.90, since it reflects
+			transcription accuracy
+		- Always add the father mention.
+		- Still add the isParentOf assertion, but set its confidence to 0.30
 
 **Add child mention**
 
@@ -59,7 +74,6 @@ description: Format instructions for CohabChildFormat
 		- Apply normalization as described in @Normalize.md.
 		- Add mention to mentions table.
 
-
 **Add assertion**
 
 	- This occurs after all mentions have been added to the mentions table.
@@ -70,4 +84,5 @@ description: Format instructions for CohabChildFormat
 			object: child's mention_id
 			start_year: 1866
 			who: County+"-CC" i.e. "AUG-CC"
+			confidence: 0.90
 		}

@@ -566,7 +566,8 @@ async function prepareMention(row, rowIndex = -1) {
 		head: String(getRowValue(row, 'head') || '').toUpperCase() === 'Y' || String(getRowValue(row, 'head') || '').toLowerCase() === 'TRUE',
 		legal_status: null, // Default
 		household_id: rowIndex >= 0 ? (householdMap.get(rowIndex) || null) : null,
-		family_id: rowIndex >= 0 ? (familyMap.get(rowIndex) || null) : null
+		family_id: rowIndex >= 0 ? (familyMap.get(rowIndex) || null) : null,
+		data: null
 	};
 
 	if (format.includes('Census') && typeof Crosswalk === 'function') {
@@ -617,6 +618,7 @@ async function applyFormatSpecificRules(mention, row) {
 	// Census Formats (1850, 1860, 1870, 1880, 1900)
 	if (format.includes('Census')) {
 		mention.legal_status = 'F';
+		mention.confidence = 0.9;
 		if (format.includes('1880') || format.includes('1900') || (selectedSource && (String(selectedSource.year) === '1880' || String(selectedSource.year) === '1900'))) {
 			mention.household_id = null;
 		}
@@ -626,19 +628,60 @@ async function applyFormatSpecificRules(mention, row) {
 		if (enumerator || enumDate) {
 			mention.enumeration = `${enumerator}:${enumDate}`;
 		}
+
+		// Census JSONB fields
+		const dataObj = {};
+		if (format.includes('1850')) {
+			const propVal = getRowValue(row, 'prop_value') || getRowValue(row, 'property_value');
+			if (propVal !== null && propVal !== undefined && String(propVal).trim() !== '') {
+				const num = parseFloat(propVal);
+				dataObj.prop_value = isNaN(num) ? String(propVal).trim() : num;
+			}
+			if (mention.district) dataObj.district = mention.district;
+			if (enumerator) dataObj.enumerator = enumerator;
+			if (enumDate) dataObj.enumerator_date = enumDate;
+		} else if (format.includes('1860')) {
+			if (enumerator) dataObj.enumerator = enumerator;
+			if (enumDate) dataObj.enumerator_date = enumDate;
+			if (mention.district) dataObj.district = mention.district;
+			const propVal = getRowValue(row, 'prop_value');
+			if (propVal !== null && propVal !== undefined && String(propVal).trim() !== '') {
+				const num = parseFloat(propVal);
+				dataObj.prop_value = isNaN(num) ? String(propVal).trim() : num;
+			}
+		} else if (format.includes('1870')) {
+			const propVal = getRowValue(row, 'prop_value');
+			if (propVal !== null && propVal !== undefined && String(propVal).trim() !== '') {
+				const num = parseFloat(propVal);
+				dataObj.prop_value = isNaN(num) ? String(propVal).trim() : num;
+			}
+			if (mention.district) dataObj.district = mention.district;
+		} else if (format.includes('1880')) {
+			const fBp = getRowValue(row, 'fathers_birthplace') || getRowValue(row, 'father_birth_place');
+			const mBp = getRowValue(row, 'mothers_birthplace') || getRowValue(row, 'mother_birth_place');
+			if (fBp) dataObj.fathers_birthplace = String(fBp).trim();
+			if (mBp) dataObj.mothers_birthplace = String(mBp).trim();
+		}
+		mention.data = Object.keys(dataObj).length > 0 ? dataObj : null;
 	}
 
 	// FreeBlackRegister
 	if (format.includes('FreeBlackRegister')) {
 		mention.legal_status = 'F';
-		mention.confidence = 0.85;
+		mention.confidence = 0.9;
+
+		const rYear = getRowValue(row, 'record_year') || getRowValue(row, 'date');
+		if (rYear) {
+			const yr = parseValidYear(rYear);
+			if (yr) mention.source_year = yr;
+		}
 
 		// Race logic based on color
 		const color = (row.color || row.Color || '').toLowerCase();
 		if (color.includes('light') || color.includes('mulatto') || color.includes('brown') || color.includes('olive') || color.includes('tawny')) {
 			mention.race = 'M';
 			mention.norm_race = 'B';
-		} else if (color.includes('yellow') || color.includes('indian')) {
+		} else if (color.includes('yellow') || color.includes('indian') || color.includes('yallowish') || color.includes('yallow')) {
 			mention.race = 'I';
 			mention.norm_race = 'B';
 		} else {
@@ -646,20 +689,48 @@ async function applyFormatSpecificRules(mention, row) {
 			mention.norm_race = 'B';
 		}
 
-		// Height translation
-		if (row.height) {
-			const match = row.height.match(/(\d+)\s*'\s*(\d+)\s*"?/);
+		// Height translation to inches
+		let heightInches = null;
+		const rawHeight = String(getRowValue(row, 'height') || '').trim();
+		if (rawHeight) {
+			const match = rawHeight.match(/(\d+)\s*'\s*([\d\s\/.]+)\s*"?/);
 			if (match) {
-				const inches = parseInt(match[1]) * 12 + parseInt(match[2]);
-				row.height = inches;
-			}
-		} else if (row.Height) {
-			const match = row.Height.match(/(\d+)\s*'\s*(\d+)\s*"?/);
-			if (match) {
-				const inches = parseInt(match[1]) * 12 + parseInt(match[2]);
-				row.Height = inches;
+				const feet = parseInt(match[1]);
+				const inchPart = match[2].trim();
+				let inches = 0;
+				if (inchPart.includes(' ')) {
+					const [whole, frac] = inchPart.split(/\s+/);
+					inches = parseFloat(whole) || 0;
+					if (frac && frac.includes('/')) {
+						const [num, den] = frac.split('/');
+						inches += (parseFloat(num) / parseFloat(den)) || 0;
+					}
+				} else if (inchPart.includes('/')) {
+					const [num, den] = inchPart.split('/');
+					inches = (parseFloat(num) / parseFloat(den)) || 0;
+				} else {
+					inches = parseFloat(inchPart) || 0;
+				}
+				heightInches = feet * 12 + inches;
+			} else {
+				const num = parseFloat(rawHeight);
+				if (!isNaN(num)) heightInches = num;
 			}
 		}
+
+		// data JSONB
+		const regnum = getRowValue(row, 'regnum');
+		const info = getRowValue(row, 'info') || getRowValue(row, 'description');
+		const rawColor = getRowValue(row, 'color');
+		const dataObj = {};
+		if (regnum !== null && regnum !== undefined && String(regnum).trim() !== '') {
+			const parsedReg = parseInt(regnum);
+			dataObj.regnum = isNaN(parsedReg) ? String(regnum).trim() : parsedReg;
+		}
+		if (heightInches !== null) dataObj.height = heightInches;
+		if (rawColor) dataObj.color = String(rawColor).trim();
+		if (info) dataObj.info = String(info).trim();
+		mention.data = Object.keys(dataObj).length > 0 ? dataObj : null;
 	}
 
 	// FindAGrave
@@ -670,6 +741,7 @@ async function applyFormatSpecificRules(mention, row) {
 	// FreedmansList
 	if (format.includes('FreedmansList')) {
 		mention.legal_status = 'F';
+		mention.confidence = 0.8;
 		mention.race = 'B';
 		mention.norm_race = 'B';
 		const recordYear = getRowValue(row, 'record_year');
@@ -682,7 +754,7 @@ async function applyFormatSpecificRules(mention, row) {
 	// DeathRecords / VitalRecord
 	if (format.includes('Death') || format.includes('VitalRecord')) {
 		mention.confidence = 0.9;
-		const rYear = getRowValue(row, 'record_year') || getRowValue(row, 'death_year') || getRowValue(row, 'event_date') || getRowValue(row, 'date') || getRowValue(row, 'birth_year');
+		const rYear = getRowValue(row, 'death_year') || getRowValue(row, 'record_year') || getRowValue(row, 'event_date') || getRowValue(row, 'date') || getRowValue(row, 'birth_year');
 		const validYear = parseValidYear(rYear);
 		if (validYear) {
 			mention.source_year = validYear;
@@ -693,6 +765,23 @@ async function applyFormatSpecificRules(mention, row) {
 		} else if (freeOrEnslaved === 'free') {
 			mention.legal_status = 'F';
 		}
+
+		// data JSONB
+		const parent1 = getRowValue(row, 'parent1');
+		const parent2 = getRowValue(row, 'parent2');
+		const spouseName = getRowValue(row, 'spouse_name') || getRowValue(row, 'spouse');
+		const eventType = getRowValue(row, 'event_type') || getRowValue(row, 'cause_of_death');
+		const eventPlace = getRowValue(row, 'event_place') || getRowValue(row, 'place');
+		const eventDate = getRowValue(row, 'event_date') || getRowValue(row, 'date');
+
+		const dataObj = {};
+		if (parent1) dataObj.parent1 = String(parent1).trim();
+		if (parent2) dataObj.parent2 = String(parent2).trim();
+		if (spouseName) dataObj.spouse_name = String(spouseName).trim();
+		if (eventType) dataObj.event_type = String(eventType).trim();
+		if (eventPlace) dataObj.event_place = String(eventPlace).trim();
+		if (eventDate) dataObj.event_date = String(eventDate).trim();
+		mention.data = Object.keys(dataObj).length > 0 ? dataObj : null;
 	}
 
 	// Church
@@ -701,6 +790,11 @@ async function applyFormatSpecificRules(mention, row) {
 		mention.legal_status = 'E';
 		mention.race = 'B';
 		mention.norm_race = 'B';
+		const rYear = getRowValue(row, 'record_year');
+		if (rYear) {
+			const yr = parseValidYear(rYear);
+			if (yr) mention.source_year = yr;
+		}
 	}
 
 	// SlaveSchedule
@@ -740,6 +834,14 @@ async function applyFormatSpecificRules(mention, row) {
 		mention.legal_status = 'E';
 		mention.race = 'B';
 		mention.norm_race = 'B';
+		const byVal = getRowValue(row, 'birth_year');
+		if (byVal) {
+			const parsedBy = parseInt(byVal);
+			if (!isNaN(parsedBy)) {
+				mention.birth_year = parsedBy;
+				mention.source_year = parsedBy;
+			}
+		}
 		const nameVal = getRowValue(row, 'name') || getRowValue(row, 'full_name');
 		if (nameVal) {
 			const cleanName = String(nameVal).replace(/[.,]/g, '').trim();
@@ -749,15 +851,38 @@ async function applyFormatSpecificRules(mention, row) {
 			mention.last_name = '';
 			mention.norm_first_name = normalizeFirstName(cleanName);
 		}
+
+		// data JSONB
+		const reportedBy = getRowValue(row, 'reported_by');
+		const motherName = getRowValue(row, 'mother');
+		const ownerName = getRowValue(row, 'owner_full_name');
+		const dataObj = {};
+		if (reportedBy) dataObj.reported_by = String(reportedBy).trim();
+		if (motherName) dataObj.mother = String(motherName).trim();
+		if (ownerName) dataObj.owner_full_name = String(ownerName).trim();
+		mention.data = Object.keys(dataObj).length > 0 ? dataObj : null;
 	}
 
 	// CohabChild
 	if (format.includes('CohabChild')) {
-		mention.confidence = 0.95;
+		mention.confidence = 0.90;
 		mention.legal_status = null;
 		mention.race = 'B';
 		mention.norm_race = 'B';
 		mention.source_year = 1866;
+
+		const cName = getRowValue(row, 'child_name') || getRowValue(row, 'name') || getRowValue(row, 'full_name');
+		if (cName) {
+			const cleanName = String(cName).replace(/[.,]/g, '').trim();
+			const { first, middle, last } = parseGeneralName(cleanName);
+			mention.full_name = cleanName;
+			mention.first_name = first;
+			mention.middle_name = middle;
+			mention.last_name = last;
+			mention.norm_first_name = normalizeFirstName(first);
+			mention.nysiis_last_name = last ? simpleNysiis(last) : null;
+			mention.metaphone_last_name = last ? doubleMetaphone(last) : null;
+		}
 
 		const byVal = getRowValue(row, 'birth_year');
 		if (byVal) {
@@ -816,8 +941,24 @@ async function applyFormatSpecificRules(mention, row) {
 
 		const fVal = getRowValue(row, 'family');
 		if (fVal) {
-			mention.family_id = `FC1866-${fVal}`;
+			mention.family_id = `CF1866-${fVal}`;
 		}
+
+		// data JSONB
+		const residence = getRowValue(row, 'residence');
+		const hFull = mention.full_name || [hFirst, hMiddle, hLast].filter(Boolean).join(' ').trim();
+		const wFirst = getRowValue(row, 'wife_first_name');
+		const wMiddle = getRowValue(row, 'wife_middle_name');
+		const wLast = getRowValue(row, 'wife_last_name');
+		const wFull = [wFirst, wMiddle, wLast].filter(Boolean).join(' ').trim();
+		const originalRemarks = getRowValue(row, 'original_remarks') || getRowValue(row, 'remarks');
+
+		const dataObj = {};
+		if (residence) dataObj.residence = String(residence).trim();
+		if (hFull) dataObj.husband_full_name = hFull;
+		if (wFull) dataObj.wife_full_name = wFull;
+		if (originalRemarks) dataObj.original_remarks = String(originalRemarks).trim();
+		mention.data = Object.keys(dataObj).length > 0 ? dataObj : null;
 	}
 }
 

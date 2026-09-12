@@ -73,7 +73,7 @@ description: Format instructions for ChurchFormat
 	| ChGBC    | Chapman Grove Baptist Church|
 	| CCCBW    | Charlottesville Church of Christ, Bible Way World Wide|
 	| CGBOL    | Chestnut Grove Baptist Church - Old Lynchburg Road|
-	| CGBSA    | Chestnut Grove Baptist Church - Southern Albemarle|
+	| CGBSA    | Chestnut Grove Baptist Church - Southern AUGemarle|
 	| ChT  	   | Christ's Temple|
 	| COGH     | Church of God HOLINESS|
 	| COGSC    | Church of God and Saints of Christ|
@@ -97,7 +97,7 @@ description: Format instructions for ChurchFormat
 	| MCC      | Mission of Christ Church|
 	| MtABC    | Mount Alto Baptist Church|
 	| MtAmBC   | Mount Amos Baptist Church, Free Union|
-	| MtCalBC  | Mount Calvary Baptist Church|
+	| MtCAUGC  | Mount Calvary Baptist Church|
 	| MtCarBC  | Mount Carmel Baptist Church|
 	| MtEBC    | Mount Eagle Baptist Church|
 	| MNMEC    | Mount Nathan Methodist Episcopal Church|
@@ -174,7 +174,7 @@ description: Format instructions for ChurchFormat
 **Creating the mention_id**
 
 	- The mention_id is created as follows:
-	- Each source has a unique prefix: for example: ALB-CH-1, where  "ALB" is the county, "CH" is the source type, and "1" is the line number from the line field in the row. 
+	- Each source has a unique prefix: for example: AUG-CH-1, where  "AUG" is the county, "CH" is the source type, and "1" is the line number from the line field in the row. 
 
 **Add enslaved mention**
 
@@ -185,7 +185,7 @@ description: Format instructions for ChurchFormat
 
 **Add enslaver mention**		
 		
-		- Add .1 to the mention_id (i.e. ALB-CH-1234 becomes ALB-CH-1234.1)
+		- Add .1 to the mention_id (i.e. AUG-CH-1234 becomes AUG-CH-1234.1)
 		- Set the full_name from the enslaver_full_name 
 		- Set the first_name from the enslaver_first_name 
 		- Set the middle_name from the enslaver_middle_name.
@@ -204,7 +204,7 @@ description: Format instructions for ChurchFormat
 			subject: mention_id.
 			predicate: wasEnslavedBy
 			object: mention_id. +".1"
-			who: ALB-CH, 
+			who: AUG-CH, 
 			start_year: record_year.
 			end_year: null.	
 			confidence: 0.85.

@@ -22,26 +22,35 @@ description: Format instructions for SlaveBirthsFormat
 		owner_full_name - The full name of the person owning the child
 		mother - The child's mother's name
 		reported_by - The name of the person who reported the birth
-		comments - Any comments about the birth
 	}
 
 **Example rows**
 
-| line | birth_year | name | gender | birth_place | owner_full_name | mother | reported_by |
-|------|------------|------|--------|-------------|-----------------|--------|-------------| 
-| 1	   | 1853	    | Nancy | F	| near Poor House | William Young |      | Owner       |
-| 2	   | 1853	    | Alexander| M	| Centreville | Augustus Staubus | Malinda | Owner     |
-| 3	   | 1853	    | Cora     | F	| Churchville | Henry Sterrett  | Fanny  | Owner       |
-| 4	   | 1853	    | Catherine| F	| Near Dutch Church | William Cameron |  | Owner       |
-| 5	   | 1853	    | Julia    | F  | Mt. Sidney  | George A. Bruce | Milley | Owner       |
+	| line | birth_year | name | gender | birth_place | owner_full_name | mother | reported_by |
+	| ---- | ---------- | ---- | ------ | ----------- | --------------- | ------ | ----------- |
+	| 1 | 1853 | Nancy | F | near Poor House | William Young | | Owner |
+	| 2 | 1853 | Alexander | M | Centreville | Augustus Staubus | Malinda | Owner |
+	| 3 | 1853 | Cora | F | Churchville | Henry Sterrett | Fanny | Owner |
+	| 4 | 1853 | Catherine | F | Near Dutch Church | William Cameron | | Owner |
+	| 5 | 1853 | Julia | F | Mt. Sidney | George A. Bruce | Milley | Owner |
+	| 6 | 1853 | Julia | F | Lewis Creek | Benjamin Reed | Fanny | Owner |
+	| 7 | 1853 | | F | Long Meadow | John McCue | Maria | Owner |
+	| 8 | 1853 | Robert | M | Waynesboro | Abraham Lynn | | Owner |
+	| 9 | 1853 | Samuel | M | Back Creek | John Sale | | Owner |
+	| 10 | 1853 | John Henry | M | near Middlebrook | Ellen Patterson | | Owner |
 
 **Translation instructions**
 
 	- Most of the fields in file match the same as the mentions' fields.	
 	- The source_year field is set to the value of the birth_year column.
 	- Set confidence to 0.95.
-	- Create mention_id for each row: ALB-SB-1, where "ALB" is the county, "SB" is the source type, "1" is the line number from the line field in the row. 
+	- Create mention_id for each row: AUG-SB-1, where "AUG" is the county, "SB" is the source type, "1" is the line number from the line field in the row. 
 	- Add only field specified. Do not infer any other fields.	
+	- Add the following field to the data JSONB field:
+		- reported_by
+		- mother
+		- owner_full_name
+		- i.e. {"reported_by": "Owner", "mother": "Malinda", "owner_full_name": "Augustus Staubus"}
 
 **Add enslaved child mention**
 
@@ -52,6 +61,16 @@ description: Format instructions for SlaveBirthsFormat
 	- Add mention_id.
 	- Apply normalization as described in @Normalize.md.
 	- Add mention to mentions table.
+
+**	Cleaning owner_full_name before split**
+
+	- Strip a leading honorific into `title`.
+		- Rev, Mrs, Miss, Capt, etc.
+	- If the string contains " / ", treat everything from the first slash onward as an alternate-spelling annotation; and continue splitting only the text before the slash.
+	- Split the cleaned string: first token → first_name, last token → last_name, remaining tokens → middle_name.
+	- Add the following field to the data JSONB field:
+		- title
+		- i.e. {"title": "Rev"}
 
 **Add mother mention**
 
@@ -67,7 +86,7 @@ description: Format instructions for SlaveBirthsFormat
 **Add enslaver mention**
 
 	- If owner_full_name is not empty, add a mention for the enslaver:
-		- Append .2 to the mention_id (e.g. ALB-SB-1.2).
+		- Append .2 to the mention_id (e.g. AUG-SB-1.2).
 		- Set full_name from owner_full_name.
 		- Set first_name, middle_name, and last_name from owner_full_name.
 		- Set race to "W" and norm_race to "W".

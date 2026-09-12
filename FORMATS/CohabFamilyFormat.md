@@ -1,18 +1,18 @@
 ---
-name: CohabChildFormat
-description: Format instructions for CohabChildFormat
+name: CohabFamilyFormat
+description: Format instructions for CohabFamilyFormat
 ---
 `
 **Child Cohabitation Format**
 
-	This file contains records of children of formerly enslaved people and their parents.
+	This file contains records of families of formerly enslaved people.
 	It is a table with 16 columns. 
 	There may be omissions, duplications, and errors in this data.
 	Some fields may be not be present in table.
 
 **Field names and descriptions**
 	
-	The following columns represent information about the person in a row. 
+	The following columns represent information about a family in a row. 
 	Some columns may be blank { 
 		line - A unique identifier for the row
 		family - Family number
@@ -47,9 +47,19 @@ description: Format instructions for CohabChildFormat
 	- The source_year field is set to 1866.
 	- Set legal_status to NULL.
 	- Set confidence to 0.95.
-	- Create mention_id for each row: ALB-CF-1, where "ALB" is the county, "CF" is the source type, "1" is the line number from the line field in the row. 
+	- Create mention_id for each row: AUG-CF-1, where "AUG" is the county, "CF" is the source type, "1" is the line number from the line field in the row. 
 	- Set race to "B" and norm_race to "B".
 	- Add only field specified. Do not infer any other fields.	
+		- If a new family is detected, i.e. the family number is different from the previous row {
+		- create a new id using the year and the family number, such as CF1866-13.
+		- set the family_id field to the new id.
+		}
+	- Add the following field to the data JSONB field:
+		- residence
+		- husband_full_name
+		- wife_full_name
+		- original_remarks
+		- i.e {"residence": "Staunton", "husband_full_name": "Henry Taylor", "wife_full_name": "Jennie Erdew"}
 
 **Add husband mention**
 
@@ -66,7 +76,7 @@ description: Format instructions for CohabChildFormat
 
 	- Set full_name and first_name middle_name last_name from the wife name fields.
 	- Set gender to "F".
-	- Append .1 to the mention_id (e.g. ALB-CF-1.1).
+	- Append .1 to the mention_id (e.g. AUG-CF-1.1).
 	- Set birth_year from the wife_birth_year column.
 	- Set birth_place from the wife_birth_place column.	
 	- Add mention_id.
@@ -82,4 +92,6 @@ description: Format instructions for CohabChildFormat
 		object: wife's mention_id	
 		start_year: 1866
 		who: County+"-CF" i.e. "AUG-CF"
+	- Set confidence to 0.90.
+
 	}
