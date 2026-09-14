@@ -8,7 +8,7 @@ description: Format instructions for 1870CensusFormat
 	This file is a transcription of the US census for 1870 and is a table with 18 columns. 
 	It was made by an enumerator person going dwelling to dwelling. 
 	Each row represents one person living in that household. 
-	It is the first census to list non-white people by name. 
+	It is the first census to list formerly-enslaved people by name. 
 	There may be omissions, duplications, and errors in this data. 
 	Some fields may be not be present in table.
 
@@ -64,8 +64,7 @@ description: Format instructions for 1870CensusFormat
 	- Apply the normalization as described in @Normalize.md
 	- Add the following field to the data JSONB field:
 		- prop_value
-		- district
-		- i.e {"prop_value": 6000, "district": "DI-2"}
+		- i.e {"prop_value": 6000}
 	- Add mention to mentions table
 
 **Creating the mention_id**

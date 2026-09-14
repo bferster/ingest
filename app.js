@@ -99,7 +99,7 @@ async function fetchExistingAssertionKeys(who) {
 	let offset = 0;
 	const limit = 2000;
 	while (true) {
-		const res = await fetch(`${POSTGREST_URL}/assertions?who=eq.${who}&select=subject_id,predicate,object_id&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/assertions?who=eq.${who}&select=subject_id,predicate,object_id,who&limit=${limit}&offset=${offset}&order=assertion_id.asc`, { headers: API_HEADERS });
 		if (!res.ok) {
 			log(`Warning: Failed to fetch existing assertions for ${who} at offset ${offset}`, true);
 			break;
@@ -108,7 +108,7 @@ async function fetchExistingAssertionKeys(who) {
 		if (data.length === 0) break;
 		data.forEach(a => {
 			const obj = a.object_id || 'null';
-			keys.add(`${a.subject_id}|${a.predicate}|${obj}`);
+			keys.add(`${a.subject_id}|${a.predicate}|${obj}|${a.who || who}`);
 		});
 		if (data.length < limit) break;
 		offset += limit;
@@ -529,6 +529,9 @@ async function prepareMention(row, rowIndex = -1) {
 	const normRace = simpleRaceNorm(rawRace || '');
 	const rawGender = getRowValue(row, 'gender') || getRowValue(row, 'sex');
 
+	const rawMaidenName = getRowValue(row, 'maiden_name') || getRowValue(row, 'maiden');
+	const maidenName = (rawMaidenName !== null && rawMaidenName !== undefined && String(rawMaidenName).trim() !== '') ? String(rawMaidenName).trim() : null;
+
 	const format = selectedSource.format || '';
 	const county = selectedSource.county || 'AUG';
 	const prefix = getMentionPrefix(format, county, selectedSource.year, row);
@@ -551,6 +554,7 @@ async function prepareMention(row, rowIndex = -1) {
 		first_name: firstName,
 		middle_name: middleName,
 		last_name: lastName,
+		maiden_name: maidenName,
 		birth_year: computedBirthYear,
 		birth_place: birthPlace,
 		death_year: deathYear,
@@ -625,25 +629,18 @@ async function applyFormatSpecificRules(mention, row) {
 
 		const enumerator = getRowValue(row, 'enumerator') || '';
 		const enumDate = getRowValue(row, 'enumerator_date') || getRowValue(row, 'enumerator_data') || getRowValue(row, 'enumeratordate') || getRowValue(row, 'enumeratordata') || '';
-		if (enumerator || enumDate) {
-			mention.enumeration = `${enumerator}:${enumDate}`;
-		}
 
 		// Census JSONB fields
 		const dataObj = {};
+		if (enumerator) dataObj.enumerator = enumerator;
+		if (enumDate) dataObj.enumerator_date = enumDate;
 		if (format.includes('1850')) {
 			const propVal = getRowValue(row, 'prop_value') || getRowValue(row, 'property_value');
 			if (propVal !== null && propVal !== undefined && String(propVal).trim() !== '') {
 				const num = parseFloat(propVal);
 				dataObj.prop_value = isNaN(num) ? String(propVal).trim() : num;
 			}
-			if (mention.district) dataObj.district = mention.district;
-			if (enumerator) dataObj.enumerator = enumerator;
-			if (enumDate) dataObj.enumerator_date = enumDate;
 		} else if (format.includes('1860')) {
-			if (enumerator) dataObj.enumerator = enumerator;
-			if (enumDate) dataObj.enumerator_date = enumDate;
-			if (mention.district) dataObj.district = mention.district;
 			const propVal = getRowValue(row, 'prop_value');
 			if (propVal !== null && propVal !== undefined && String(propVal).trim() !== '') {
 				const num = parseFloat(propVal);
@@ -655,7 +652,6 @@ async function applyFormatSpecificRules(mention, row) {
 				const num = parseFloat(propVal);
 				dataObj.prop_value = isNaN(num) ? String(propVal).trim() : num;
 			}
-			if (mention.district) dataObj.district = mention.district;
 		} else if (format.includes('1880') || format.includes('1900')) {
 			const fBp = getRowValue(row, 'fathers_birthplace') || getRowValue(row, 'father_birth_place');
 			const mBp = getRowValue(row, 'mothers_birthplace') || getRowValue(row, 'mother_birth_place');
@@ -803,8 +799,11 @@ async function applyFormatSpecificRules(mention, row) {
 
 		const enumerator = getRowValue(row, 'enumerator') || '';
 		const enumDate = getRowValue(row, 'enumerator_date') || getRowValue(row, 'enumerator_data') || getRowValue(row, 'enumeratordate') || getRowValue(row, 'enumeratordata') || '';
-		if (enumerator || enumDate) {
-			mention.enumeration = `${enumerator}:${enumDate}`;
+		const dataObj = mention.data || {};
+		if (enumerator) dataObj.enumerator = enumerator;
+		if (enumDate) dataObj.enumerator_date = enumDate;
+		if (Object.keys(dataObj).length > 0) {
+			mention.data = dataObj;
 		}
 
 		const statusVal = String(getRowValue(row, 'status') || getRowValue(row, 'owner') || '').trim();
@@ -1645,7 +1644,7 @@ async function processPostHocAssertions() {
 
 	while (true) {
 		const likePattern = prefix.endsWith('VR') ? `${prefix}*` : `${prefix}-*`;
-		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,source_year,family_id,household_id,legal_status,head&limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
+		const res = await fetch(`${POSTGREST_URL}/mentions?mention_id=like.${likePattern}&select=mention_id,full_name,gender,birth_year,source_year,family_id,household_id,legal_status,head&limit=${limit}&offset=${offset}&order=mention_id.asc`, { headers: API_HEADERS });
 		if (!res.ok) {
 			throw new Error('Failed to fetch mentions for assertions');
 		}
@@ -1704,10 +1703,32 @@ async function processPostHocAssertions() {
 		const assertionsToCreate = [];
 
 		// Deduplication: Fetch existing assertions for this source type
-		const whoTag = `${selectedSource.year}Census`;
-		log(`Checking for existing ${whoTag} assertions to avoid duplicates...`);
-		const existingAssertionKeys = await fetchExistingAssertionKeys(whoTag);
-		log(`Found ${existingAssertionKeys.size} existing assertions for ${whoTag}.`);
+		const is1880 = selectedSource.year == 1880;
+		const is1900 = selectedSource.year == 1900 || selectedSource.format.includes('1900');
+		const whoTags = is1880 ? ['1880Census', '1880Census-inferred'] : [`${selectedSource.year}Census`];
+		log(`Checking for existing ${whoTags.join(', ')} assertions to avoid duplicates...`);
+		const existingAssertionKeys = new Set();
+		for (const w of whoTags) {
+			const keys = await fetchExistingAssertionKeys(w);
+			keys.forEach(k => existingAssertionKeys.add(k));
+		}
+		log(`Found ${existingAssertionKeys.size} existing assertions for ${whoTags.join(', ')}.`);
+
+		function addAssertion(subjId, pred, objId, who, startYear, conf) {
+			if (!subjId || !pred || !objId) return;
+			const aKey = `${subjId}|${pred}|${objId}|${who}`;
+			if (!existingAssertionKeys.has(aKey)) {
+				assertionsToCreate.push({
+					subject_id: subjId,
+					predicate: pred,
+					object_id: objId,
+					who: who,
+					start_year: startYear,
+					confidence: conf
+				});
+				existingAssertionKeys.add(aKey);
+			}
+		}
 
 		log(`Matching relationships for ${totalGroups} family/household groups...`);
 
@@ -1723,32 +1744,53 @@ async function processPostHocAssertions() {
 			});
 			if (!head) continue;
 
+			const spouse = members.find(m => {
+				if (m.mention_id === head.mention_id) return false;
+				const row = mentionRowMap.get(m.mention_id) || m.original_data;
+				const rel = (getRowValue(row, 'relation') || '').trim().toLowerCase();
+				return rel === 'wife' || rel === 'husband';
+			});
+
 			for (let i = 0; i < members.length; i++) {
 				const self = members[i];
-
-				// Skip head for relation identification as per instruction 74
 				if (self.mention_id === head.mention_id) continue;
 
-				let predicate = null;
-				let confidence = 0.5;
-				let who = `${selectedSource.year}Census`;
+				const row = mentionRowMap.get(self.mention_id) || self.original_data;
+				const rawRel = (getRowValue(row, 'relation') || '').trim();
+				const relLower = rawRel.toLowerCase();
+				if (!relLower || relLower === 'self') continue;
 
-				const isRelationBased = selectedSource.year == 1880 || selectedSource.year == 1900 || selectedSource.format.includes('1900');
+				if (is1880) {
+					// Check child relations first per 1880CensusFormat.md
+					const isChild = relLower === 'son' || relLower === 'daughter';
+					const isStepChild = relLower === 'stepson' || relLower === 'stepdaughter';
+					const isAdoptedChild = relLower === 'adopted son' || relLower === 'adopted daughter';
 
-				if (isRelationBased) {
-					who = `${selectedSource.year}Census`;
-					confidence = 0.9;
-					// 1880/1900 Census Logic (Relation-based)
-					const row = mentionRowMap.get(self.mention_id) || self.original_data;
-					const relation = getRowValue(row, 'relation');
-					if (relation && relation.toLowerCase() !== "self") {
-						const relationMap = {
+					if (isChild || isStepChild || isAdoptedChild) {
+						const mappedPred = isChild ? 'isChildOf' : (isStepChild ? 'isStepChildOf' : 'isAdoptedChildOf');
+						// Create assertion to head
+						addAssertion(self.mention_id, mappedPred, head.mention_id, '1880Census', 1880, 0.9);
+
+						// If spouse exists, infer relation to spouse
+						if (spouse) {
+							if (isChild) {
+								let conf = 0.3;
+								if (self.birth_year != null && spouse.birth_year != null) {
+									const gap = Number(self.birth_year) - Number(spouse.birth_year);
+									if (gap >= 15) conf = 0.7;
+									else if (gap >= 10) conf = 0.5;
+									else conf = 0.3;
+								}
+								addAssertion(self.mention_id, 'isChildOf', spouse.mention_id, '1880Census-inferred', 1880, conf);
+							} else if (isStepChild) {
+								addAssertion(self.mention_id, 'isChildOf', spouse.mention_id, '1880Census-inferred', 1880, 0.6);
+							}
+						}
+					} else {
+						// General family relations per 1880CensusFormat.md
+						const relationMap1880 = {
 							"wife": "isSpouseOf",
 							"husband": "isSpouseOf",
-							"son": "isChildOf",
-							"daughter": "isChildOf",
-							"stepson": "isStepChildOf",
-							"stepdaughter": "isStepChildOf",
 							"brother": "isSiblingOf",
 							"sister": "isSiblingOf",
 							"father": "isParentOf",
@@ -1776,27 +1818,45 @@ async function processPostHocAssertions() {
 							"nephew-in-law": "isNiblingInLawOf",
 							"niece-in-law": "isNiblingInLawOf"
 						};
-						predicate = relationMap[relation.toLowerCase()] || null;
-					}
-				}
-
-				if (predicate) {
-					let subjId = isRelationBased ? self.mention_id : head.mention_id;
-					let objId = isRelationBased ? head.mention_id : self.mention_id;
-
-					if (subjId && objId) {
-						const aKey = `${subjId}|${predicate}|${objId}`;
-						if (!existingAssertionKeys.has(aKey)) {
-							assertionsToCreate.push({
-								subject_id: subjId,
-								predicate: predicate,
-								object_id: objId,
-								who: who,
-								start_year: parseInt(selectedSource.year),
-								confidence: confidence
-							});
-							existingAssertionKeys.add(aKey);
+						const pred = relationMap1880[relLower];
+						if (pred) {
+							addAssertion(self.mention_id, pred, head.mention_id, '1880Census', 1880, 0.9);
 						}
+					}
+				} else if (is1900) {
+					// 1900 Census logic
+					const relationMap1900 = {
+						"wife": "isSpouseOf",
+						"son": "isChildOf",
+						"daughter": "isChildOf",
+						"brother": "isSiblingOf",
+						"sister": "isSiblingOf",
+						"father": "isParentOf",
+						"mother": "isParentOf",
+						"grandfather": "isGrandParentOf",
+						"grandmother": "isGrandParentOf",
+						"uncle": "isPiblingOf",
+						"aunt": "isPiblingOf",
+						"cousin": "isCousinOf",
+						"nephew": "isNiblingOf",
+						"niece": "isNiblingOf",
+						"son-in-law": "isChildInLawOf",
+						"daughter-in-law": "isChildInLawOf",
+						"brother-in-law": "isSiblingInLawOf",
+						"sister-in-law": "isSiblingInLawOf",
+						"father-in-law": "isParentInLawOf",
+						"mother-in-law": "isParentInLawOf",
+						"grandfather-in-law": "isGrandParentInLawOf",
+						"grandmother-in-law": "isGrandParentInLawOf",
+						"uncle-in-law": "isPiblingInLawOf",
+						"aunt-in-law": "isPiblingInLawOf",
+						"cousin-in-law": "isCousinInLawOf",
+						"nephew-in-law": "isNiblingInLawOf",
+						"niece-in-law": "isNiblingInLawOf"
+					};
+					const pred = relationMap1900[relLower];
+					if (pred) {
+						addAssertion(self.mention_id, pred, head.mention_id, '1900Census', 1900, 0.9);
 					}
 				}
 			}
@@ -1860,9 +1920,9 @@ async function removeDuplicateAssertions() {
 
 	const groups = {};
 	allAssertions.forEach(a => {
-		// Key must account for object_id to be unique
+		// Key must account for object_id and who per Schema.md
 		const objValue = a.object_id || 'null';
-		const key = `${a.subject_id}|${a.predicate}|${objValue}`;
+		const key = `${a.subject_id}|${a.predicate}|${objValue}|${a.who || ''}`;
 		if (!groups[key]) groups[key] = [];
 		groups[key].push(a);
 	});

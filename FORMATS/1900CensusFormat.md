@@ -40,7 +40,6 @@ description: Format instructions for 1900CensusFormat
 		- years_married - Number of years married.
 		- head - "Y" if the person is the head of the household.
 		- district - The district of the person
-		- enumeration - The enumerator and enumerator date/data formatted as enumerator:enumerator_date
 		}
 
 **Example rows**

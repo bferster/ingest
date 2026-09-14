@@ -64,8 +64,7 @@ description: Format instructions for 1860CensusFormat
 	- Add the following field to the data JSONB field:
 		- enumerator
 		- enumerator_date
-		- district
-		- i.e {"enumerator": "JL", "enumerator_date": "6.23", "district": "DI-2"}
+		- i.e {"enumerator": "JL", "enumerator_date": "6.23"}
 
 	- Add mention to mentions table
 
@@ -77,10 +76,5 @@ description: Format instructions for 1860CensusFormat
 **Assertions**
 	- Do not create any assertions for this source
 
-	
-**Add enumeration field**
 
-	- The enumeration field contains the value of the enumerator and the enumerator_data field, separated by a colon.
-	- i.e. "JL:6.23" where "JL" is the enumerator and "6.23" is the enumerator_date.
-	- Put the result in the enumeration field.
 

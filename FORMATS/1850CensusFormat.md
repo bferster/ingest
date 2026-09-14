@@ -57,17 +57,16 @@ description: Format instructions for 1850CensusFormat
 	- The confidence field is set to 0.9
 	- The legal_status field is set to "F"
 	- Apply the normalization as described in @Normalize.md
-		- If a new family is detected, i.e. the family number is different from the previous row {
-		- create a new id using the year and the family number, such as FC1870-23.
-		- set the family_id field to the new id.
+	- If a new family is detected, i.e. the family number is different from the previous row {
+		create a new id using the year and the family number, such as FC1850-23.
+		set the family_id field to the new id.
 		}
 	- If the head field is "Y" then set the head field to TRUE, else FALSE	
 	- Add the following field to the data JSONB field:
 		- prop_value
-		- district
 		- enumerator
 		- enumerator_date
-		- i.e {"prop_value": 6000, "district": "DI-2", "enumeration": "JL:6.23", "enumerator_date": "6.23", "enumerator": "JL"}
+		- i.e {"prop_value": 6000, "enumerator": "JL", "enumerator_date": "6.23"}
 
 	- Add mention to mentions table
 
@@ -75,12 +74,6 @@ description: Format instructions for 1850CensusFormat
 
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: AUG-CN-1850-23, where  "AUG" is the county, "CN" is the source type, "1850" is the year and "23" is the line number from the line field in the row.
-
-**Add enumeration field**
-
-	- The enumeration field contains the value of the enumerator and the enumerator_data field, separated by a colon.
-	- i.e. "JL:6.23" where "JL" is the enumerator and "6.23" is the enumerator_date.
-	- Put the result in the enumeration field.
 				
 **Assertions**
 

@@ -64,11 +64,10 @@ description: Format instructions for SlaveScheduleFormat
 	- The mention_id is created as follows:
 		- Each source has a unique prefix: for example: AUG-SS-1850-1, where  "AUG" is the county, "SS" is the source type, "1850" is the year and "1" is the line number from the line field in the row. 
 
-**Add enumeration field**
-
-	- The enumeration field contains the value of the enumerator and the enumerator_date field, separated by a colon.
-	- i.e. "-:7.5" where "-" is the enumerator and "7.5" is the enumerator_date.
-	- Put the result in the enumeration field.
+	- Add the following fields to the data JSONB field:
+		- enumerator
+		- enumerator_date
+		- i.e {"enumerator": "-", "enumerator_date": "7.5"}
 
 **Add enslaver mention**
 
