@@ -529,9 +529,6 @@ async function prepareMention(row, rowIndex = -1) {
 	const normRace = simpleRaceNorm(rawRace || '');
 	const rawGender = getRowValue(row, 'gender') || getRowValue(row, 'sex');
 
-	const rawMaidenName = getRowValue(row, 'maiden_name') || getRowValue(row, 'maiden');
-	const maidenName = (rawMaidenName !== null && rawMaidenName !== undefined && String(rawMaidenName).trim() !== '') ? String(rawMaidenName).trim() : null;
-
 	const format = selectedSource.format || '';
 	const county = selectedSource.county || 'AUG';
 	const prefix = getMentionPrefix(format, county, selectedSource.year, row);
@@ -554,7 +551,6 @@ async function prepareMention(row, rowIndex = -1) {
 		first_name: firstName,
 		middle_name: middleName,
 		last_name: lastName,
-		maiden_name: maidenName,
 		birth_year: computedBirthYear,
 		birth_place: birthPlace,
 		death_year: deathYear,
@@ -627,13 +623,13 @@ async function applyFormatSpecificRules(mention, row) {
 			mention.household_id = null;
 		}
 
-		const enumerator = getRowValue(row, 'enumerator') || '';
-		const enumDate = getRowValue(row, 'enumerator_date') || getRowValue(row, 'enumerator_data') || getRowValue(row, 'enumeratordate') || getRowValue(row, 'enumeratordata') || '';
+		const enumerator = getRowValue(row, 'enum') || getRowValue(row, 'enumerator') || '';
+		const enumDate = getRowValue(row, 'enum_date') || getRowValue(row, 'enumerator_date') || getRowValue(row, 'enumerator_data') || getRowValue(row, 'enumeratordate') || getRowValue(row, 'enumeratordata') || '';
 
 		// Census JSONB fields
 		const dataObj = {};
-		if (enumerator) dataObj.enumerator = enumerator;
-		if (enumDate) dataObj.enumerator_date = enumDate;
+		if (enumerator) dataObj.enum = enumerator;
+		if (enumDate) dataObj.enum_date = enumDate;
 		if (format.includes('1850')) {
 			const propVal = getRowValue(row, 'prop_value') || getRowValue(row, 'property_value');
 			if (propVal !== null && propVal !== undefined && String(propVal).trim() !== '') {
@@ -797,11 +793,11 @@ async function applyFormatSpecificRules(mention, row) {
 	if (format.includes('SlaveSchedule')) {
 		mention.confidence = 0.9;
 
-		const enumerator = getRowValue(row, 'enumerator') || '';
-		const enumDate = getRowValue(row, 'enumerator_date') || getRowValue(row, 'enumerator_data') || getRowValue(row, 'enumeratordate') || getRowValue(row, 'enumeratordata') || '';
+		const enumerator = getRowValue(row, 'enum') || getRowValue(row, 'enumerator') || '';
+		const enumDate = getRowValue(row, 'enum_date') || getRowValue(row, 'enumerator_date') || getRowValue(row, 'enumerator_data') || getRowValue(row, 'enumeratordate') || getRowValue(row, 'enumeratordata') || '';
 		const dataObj = mention.data || {};
-		if (enumerator) dataObj.enumerator = enumerator;
-		if (enumDate) dataObj.enumerator_date = enumDate;
+		if (enumerator) dataObj.enum = enumerator;
+		if (enumDate) dataObj.enum_date = enumDate;
 		if (Object.keys(dataObj).length > 0) {
 			mention.data = dataObj;
 		}
