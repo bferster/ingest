@@ -64,9 +64,9 @@ description: Format instructions for 1850CensusFormat
 	- If the head field is "Y" then set the head field to TRUE, else FALSE	
 	- Add the following field to the data JSONB field:
 		- prop_value
-		- enumerator
-		- enumerator_date
-		- i.e {"prop_value": 6000, "enumerator": "JL", "enumerator_date": "6.23"}
+		- enum
+		- enum_date
+		- i.e {"prop_value": 6000, "enum": "JL", "enum_date": "6.23"}
 
 	- Add mention to mentions table
 

@@ -62,9 +62,9 @@ description: Format instructions for 1860CensusFormat
 	- If the head field is "Y" then set the head field to TRUE, else FALSE	
 	- Apply the normalization as described in @Normalize.md
 	- Add the following field to the data JSONB field:
-		- enumerator
-		- enumerator_date
-		- i.e {"enumerator": "JL", "enumerator_date": "6.23"}
+		- enum
+		- enum_date
+		- i.e {"enum": "JL", "enum_date": "6.23"}
 
 	- Add mention to mentions table
 

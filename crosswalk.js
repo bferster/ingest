@@ -505,7 +505,6 @@ async function ingestCrosswalkAssertions(county) {
 				subject_id: (r.subject_id || '').trim(),
 				predicate: (r.predicate || 'isSameAs').trim(),
 				object_id: (r.object_id || '').trim(),
-				county: c,
 				start_year: parseValidYear(r.start_year),
 				end_year: parseValidYear(r.end_year),
 				who: (r.who || 'crosswalk').trim(),

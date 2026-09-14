@@ -13,15 +13,10 @@ The following SQL commands define the schema for the various tables needed:
 		source          VARCHAR(100) NOT NULL,
 		source_year     SMALLINT,
 		confidence      REAL CHECK (confidence BETWEEN 0 AND 1),
-
-		county          VARCHAR(3) GENERATED ALWAYS AS
-		                  (split_part(mention_id, '-', 1)) STORED,
-
 		full_name       VARCHAR(255),
 		first_name      VARCHAR(100),
 		middle_name     VARCHAR(100),
 		last_name       VARCHAR(100),
-		maiden_name     VARCHAR(100),
 		birth_year      SMALLINT,
 		death_year      SMALLINT,
 		birth_place     VARCHAR(255),
@@ -50,7 +45,6 @@ The following SQL commands define the schema for the various tables needed:
 	CREATE INDEX ix_mentions_family       ON mentions (family_id);
 	CREATE INDEX ix_mentions_household    ON mentions (household_id);
 	CREATE INDEX ix_mentions_nysiis       ON mentions (nysiis_last_name, norm_first_name);
-	CREATE INDEX ix_mentions_county       ON mentions (county);
 
 
 	CREATE TABLE assertions (
@@ -62,9 +56,6 @@ The following SQL commands define the schema for the various tables needed:
 		end_year      SMALLINT,
 		who           VARCHAR(100) NOT NULL,
 		confidence    REAL CHECK (confidence BETWEEN 0 AND 1),
-
-		county        VARCHAR(3) GENERATED ALWAYS AS
-		                (split_part(subject_id, '-', 1)) STORED,
 
 		CONSTRAINT ck_predicate CHECK (predicate IN (
 			-- identity

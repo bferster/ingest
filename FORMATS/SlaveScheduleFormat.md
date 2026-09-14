@@ -65,9 +65,9 @@ description: Format instructions for SlaveScheduleFormat
 		- Each source has a unique prefix: for example: AUG-SS-1850-1, where  "AUG" is the county, "SS" is the source type, "1850" is the year and "1" is the line number from the line field in the row. 
 
 	- Add the following fields to the data JSONB field:
-		- enumerator
-		- enumerator_date
-		- i.e {"enumerator": "-", "enumerator_date": "7.5"}
+		- enum
+		- enum_date
+		- i.e {"enum": "-", "enum_date": "7.5"}
 
 **Add enslaver mention**
 
